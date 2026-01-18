@@ -119,5 +119,7 @@ jobs:
             - Processed on: ${{ github.run_id }}
             - Commit: ${{ github.sha }}
             - Date: ${{ github.event.head_commit.timestamp }}
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
