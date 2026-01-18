@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import sys
 import os
+import threading
 from dotenv import load_dotenv
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -21,6 +22,7 @@ app = Flask(__name__)
 CORS(app)
 
 cache = {'forwards': None, 'defensemen': None, 'loaded': False}
+loading_state = {'in_progress': False, 'error': None, 'thread': None}
 cache_manager = CacheManager()
 data_host = DataHostManager()
 
@@ -70,7 +72,19 @@ def initialize_data(force_reload=False):
         cache['defensemen'] = defensemen_cached
         cache['loaded'] = True
         return
+
+def load_data_in_background():
+    loading_state['in_progress'] = True
+    loading_state['error'] = None
     
+    try:
+        initialize_data(force_reload=True)
+        if not cache['loaded']:
+            loading_state['error'] = 'Failed to load data from both hosted source and local cache'
+    except Exception as e:
+        loading_state['error'] = str(e)
+    finally:
+        loading_state['in_progress'] = False
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -78,48 +92,44 @@ def health():
 
 @app.route('/init', methods=['GET'])
 def init():
-    import time
-    
-    max_wait_time = 120
-    retry_interval = 50
-    start_time = time.time()
-    
-    try:
-        while time.time() - start_time < max_wait_time:
-            initialize_data(force_reload=True)
-            
-            if cache['loaded']:
-                source = 'hosted' if cache['forwards'] is not None and hasattr(cache['forwards'], 'shape') else 'cache'
-                forwards_count = len(cache['forwards']) if cache['forwards'] is not None else 0
-                defensemen_count = len(cache['defensemen']) if cache['defensemen'] is not None else 0
-                
-                return jsonify({
-                    'status': 'success', 
-                    'message': f'Data loaded successfully from {source}',
-                    'details': {
-                        'forwards_rows': forwards_count,
-                        'defensemen_rows': defensemen_count,
-                    }
-                })
-            
-            time.sleep(retry_interval)
+    if cache['loaded']:
+        source = 'hosted' if cache['forwards'] is not None and hasattr(cache['forwards'], 'shape') else 'cache'
+        forwards_count = len(cache['forwards']) if cache['forwards'] is not None else 0
+        defensemen_count = len(cache['defensemen']) if cache['defensemen'] is not None else 0
         
+        return jsonify({
+            'status': 'success', 
+            'message': f'Data loaded successfully from {source}',
+            'details': {
+                'forwards_rows': forwards_count,
+                'defensemen_rows': defensemen_count,
+            }
+        })
+    
+    if loading_state['in_progress']:
+        return jsonify({
+            'status': 'loading',
+            'message': 'Data is being loaded in the background. Please check again in a few moments.'
+        }), 202
+    
+    if loading_state['error']:
         cache_exists = cache_manager.cache_exists("forwards_processed.csv") and cache_manager.cache_exists("defensemen_processed.csv")
         return jsonify({
             'status': 'error',
-            'message': f'Failed to load data after {max_wait_time} seconds. Please ensure data files exist.',
+            'message': loading_state['error'],
             'details': {
-                'cache_exists': cache_exists,
-                'waited_seconds': max_wait_time
+                'cache_exists': cache_exists
             }
         }), 500
-        
-    except Exception as e:
-        import traceback
-        return jsonify({
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        }), 500
+    
+    thread = threading.Thread(target=load_data_in_background, daemon=True)
+    thread.start()
+    loading_state['thread'] = thread
+    
+    return jsonify({
+        'status': 'loading',
+        'message': 'Data loading started in the background. Please check again in a few moments.'
+    }), 202
 
 @app.route('/search', methods=['GET', 'POST'])
 def search():
