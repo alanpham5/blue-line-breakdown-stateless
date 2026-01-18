@@ -85,10 +85,14 @@ class DataHostManager:
         
         try:
             response = requests.get(file_url, headers=headers, timeout=30, allow_redirects=True)
+            if response.status_code == 404:
+                return None
             response.raise_for_status()
             df = pd.read_csv(StringIO(response.text))
             return df
-        except Exception as e:
+        except requests.exceptions.RequestException:
+            return None
+        except Exception:
             return None
     
     def load_processed_data(self):

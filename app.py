@@ -55,6 +55,14 @@ def initialize_data(force_reload=False):
     cache['forwards'] = None
     cache['defensemen'] = None
     
+    forwards_cached, defensemen_cached = cache_manager.load_processed_data()
+    
+    if forwards_cached is not None and defensemen_cached is not None:
+        cache['forwards'] = forwards_cached
+        cache['defensemen'] = defensemen_cached
+        cache['loaded'] = True
+        return
+    
     try:
         forwards_hosted, defensemen_hosted = data_host.load_processed_data()
         if forwards_hosted is not None and defensemen_hosted is not None:
@@ -64,14 +72,6 @@ def initialize_data(force_reload=False):
             return
     except Exception as e:
         pass
-    
-    forwards_cached, defensemen_cached = cache_manager.load_processed_data()
-    
-    if forwards_cached is not None and defensemen_cached is not None:
-        cache['forwards'] = forwards_cached
-        cache['defensemen'] = defensemen_cached
-        cache['loaded'] = True
-        return
 
 def load_data_in_background():
     loading_state['in_progress'] = True
@@ -80,9 +80,19 @@ def load_data_in_background():
     try:
         initialize_data(force_reload=True)
         if not cache['loaded']:
-            loading_state['error'] = 'Failed to load data from both hosted source and local cache'
+            cache_exists = cache_manager.cache_exists("forwards_processed.csv") and cache_manager.cache_exists("defensemen_processed.csv")
+            github_repo = os.environ.get('GITHUB_REPO', 'Not set')
+            error_msg = 'Failed to load data from both hosted source and local cache'
+            if not cache_exists and not github_repo:
+                error_msg += '. No local cache found and GITHUB_REPO not configured.'
+            elif not cache_exists:
+                error_msg += f'. No local cache found. GITHUB_REPO: {github_repo}'
+            elif github_repo == 'Not set':
+                error_msg += '. GITHUB_REPO not configured.'
+            loading_state['error'] = error_msg
     except Exception as e:
-        loading_state['error'] = str(e)
+        import traceback
+        loading_state['error'] = f'{str(e)}\n{traceback.format_exc()}'
     finally:
         loading_state['in_progress'] = False
 
