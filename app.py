@@ -78,29 +78,42 @@ def health():
 
 @app.route('/init', methods=['GET'])
 def init():
+    import time
+    
+    max_wait_time = 120
+    retry_interval = 50
+    start_time = time.time()
+    
     try:
-        initialize_data(force_reload=True)
-        if cache['loaded']:
-            source = 'hosted' if cache['forwards'] is not None and hasattr(cache['forwards'], 'shape') else 'cache'
-            forwards_count = len(cache['forwards']) if cache['forwards'] is not None else 0
-            defensemen_count = len(cache['defensemen']) if cache['defensemen'] is not None else 0
+        while time.time() - start_time < max_wait_time:
+            initialize_data(force_reload=True)
             
-            return jsonify({
-                'status': 'success', 
-                'message': f'Data loaded successfully from {source}',
-                'details': {
-                    'forwards_rows': forwards_count,
-                    'defensemen_rows': defensemen_count,
-                }
-            })
-        else:
-            return jsonify({
-                'status': 'error',
-                'message': 'Failed to load data from both hosted source and local cache. Please ensure data files exist.',
-                'details': {
-                    'cache_exists': cache_manager.cache_exists("forwards_processed.csv") and cache_manager.cache_exists("defensemen_processed.csv")
-                }
-            }), 500
+            if cache['loaded']:
+                source = 'hosted' if cache['forwards'] is not None and hasattr(cache['forwards'], 'shape') else 'cache'
+                forwards_count = len(cache['forwards']) if cache['forwards'] is not None else 0
+                defensemen_count = len(cache['defensemen']) if cache['defensemen'] is not None else 0
+                
+                return jsonify({
+                    'status': 'success', 
+                    'message': f'Data loaded successfully from {source}',
+                    'details': {
+                        'forwards_rows': forwards_count,
+                        'defensemen_rows': defensemen_count,
+                    }
+                })
+            
+            time.sleep(retry_interval)
+        
+        cache_exists = cache_manager.cache_exists("forwards_processed.csv") and cache_manager.cache_exists("defensemen_processed.csv")
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to load data after {max_wait_time} seconds. Please ensure data files exist.',
+            'details': {
+                'cache_exists': cache_exists,
+                'waited_seconds': max_wait_time
+            }
+        }), 500
+        
     except Exception as e:
         import traceback
         return jsonify({
