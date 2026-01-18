@@ -100,7 +100,7 @@ def search():
         player_name = data['playerName']
         season = int(data['season'])
         position = data['position']
-        num_neighbors = data.get('numNeighbors', 7)
+        num_neighbors = data.get('numNeighbors', 9)
         filter_season = data.get('filterSeason')
         
         if position and position.upper() != 'D':
@@ -135,7 +135,7 @@ def search():
         offensive_stats = {k: v for k, v in percentiles.items() 
                           if 'I_F' in k or 'OnIce_F' in k}
         defensive_stats = {k: v for k, v in percentiles.items() 
-                          if 'OnIce_A' in k or 'hits' in k or 'takeaways' in k}
+                          if 'OnIce_A' in k or 'hits' in k or 'takeaways' in k or 'shotsBlockedByPlayer' in k or 'Blocked' in k}
         
         result = {
             'player': {

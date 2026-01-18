@@ -10,7 +10,8 @@ class DataProcessor:
             "playerId", "name", "season", 'height', 'weight', "age", "position",
             "I_F_xGoals", "I_F_goals", "I_F_primaryAssists", "I_F_secondaryAssists",
             "I_F_shotsOnGoal", "I_F_shotAttempts", "I_F_points", "I_F_hits",
-            "I_F_takeaways", "I_F_giveaways", "OnIce_F_xGoals", "OnIce_F_goals",
+            "I_F_takeaways", "I_F_giveaways", "I_F_shotsBlockedByPlayer", "shotsBlockedByPlayer",
+            "OnIce_F_xGoals", "OnIce_F_goals",
             "OnIce_A_xGoals", "OnIce_A_goals"
         ]
         self.nonnum_columns = ["playerId", "name", "position", "season"]
