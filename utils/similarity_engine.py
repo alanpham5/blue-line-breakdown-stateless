@@ -235,11 +235,14 @@ class SimilarityEngine:
         similarities = 100 * np.exp(-normalized_distances)
         
         max_similarity = np.max(similarities)
-        if max_similarity > 90:
-            scale_adjustment = 90 / max_similarity
-            similarities = similarities * scale_adjustment
+        min_similarity = np.min(similarities)
+        similarity_range = max_similarity - min_similarity
         
-        similarities = np.clip(similarities, 0, 100)
+        if similarity_range > 0:
+            scaled_similarities = 30 + (similarities - min_similarity) / similarity_range * 65
+            similarities = scaled_similarities
+        
+        similarities = np.clip(similarities, 0, 95)
         
         all_neighbors = []
         for idx, similarity in zip(indices[0], similarities):
@@ -249,17 +252,76 @@ class SimilarityEngine:
                     'season': int(names[idx][1]),
                     'playerId': int(names[idx][2]),
                     'position': str(names[idx][3]) if len(names[idx]) > 3 else 'F',
-                    'similarity': round(similarity, 1)
+                    'similarity': float(similarity)
                 }
                 if len(names[idx]) > 4 and pd.notna(names[idx][4]):
                     neighbor_data['team'] = str(names[idx][4])
                 all_neighbors.append(neighbor_data)
         
+        candidate_neighbors = [n for n in all_neighbors if n['playerId'] != player_id]
+        
+        player_self = {
+            'name': player_name,
+            'season': season,
+            'playerId': player_id,
+            'position': str(player_row['position']) if 'position' in player_row else 'F',
+            'similarity': 99.0
+        }
+        if 'team' in player_row and pd.notna(player_row['team']):
+            player_self['team'] = str(player_row['team'])
+        candidate_neighbors.append(player_self)
+        
+        for n in candidate_neighbors:
+            season_diff = abs(n['season'] - season)
+
+            era_penalty = 30 - season_diff
+            n['similarity'] = n['similarity'] - era_penalty
+        
+        candidate_neighbors.sort(key=lambda x: x['similarity'], reverse=True)
+        
+        if len(candidate_neighbors) > 0:
+            all_similarities = [n['similarity'] for n in candidate_neighbors]
+            max_sim = max(all_similarities)
+            min_sim = min(all_similarities)
+            sim_range = max_sim - min_sim
+            
+            if sim_range > 0:
+                target_max = 99.0
+                target_min = 50.0
+                target_range = target_max - target_min
+                
+                scale_factor = target_range / sim_range
+                for n in candidate_neighbors:
+                    n['similarity'] = target_min + (n['similarity'] - min_sim) * scale_factor
+        
+        candidate_neighbors.sort(key=lambda x: x['similarity'], reverse=True)
+        
+        for n in candidate_neighbors:
+            n['similarity'] = round(n['similarity'], 1)
+        
+        candidate_neighbors = [n for n in candidate_neighbors if n['playerId'] != player_id]
+        
         neighbors = []
-        for n in all_neighbors:
-            if n['playerId'] != player_id:
+        season_counts = {}
+        max_per_season = max(2, num_neighbors // 3)
+        
+        for n in candidate_neighbors:
+            n_season = n['season']
+            current_count = season_counts.get(n_season, 0)
+            
+            if current_count < max_per_season or len(neighbors) < num_neighbors:
                 neighbors.append(n)
+                season_counts[n_season] = current_count + 1
                 if len(neighbors) >= num_neighbors:
                     break
+        
+        if len(neighbors) < num_neighbors:
+            for n in candidate_neighbors:
+                if n not in neighbors:
+                    neighbors.append(n)
+                    if len(neighbors) >= num_neighbors:
+                        break
+        
+        neighbors.sort(key=lambda x: x['similarity'], reverse=True)
         
         return neighbors
