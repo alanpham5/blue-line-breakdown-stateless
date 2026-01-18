@@ -201,19 +201,53 @@ def search():
         
         similarity_engine = SimilarityEngine()
         df_normalized = similarity_engine.normalize_columns(df, method='minmax')
-        df_transformed = similarity_engine.pca_transform(df_normalized, n_components=35)
+        
+        feature_columns_pre = [col for col in df_normalized.columns 
+                              if col not in ["playerId", "name", "position", "season", "team"]]
+        
+        feature_weights_dict = {}
+        for col in feature_columns_pre:
+            col_str = str(col).lower()
+            if 'i_f_' in col_str or 'onice_f_' in col_str:
+                if 'goals' in col_str or 'assists' in col_str or 'points' in col_str or 'xgoals' in col_str:
+                    feature_weights_dict[col] = 1.3
+                else:
+                    feature_weights_dict[col] = 1.1
+            elif 'hits' in col_str or 'blocked' in col_str or 'takeaways' in col_str:
+                feature_weights_dict[col] = 1.2
+            elif 'onice_a_' in col_str or 'corsi' in col_str:
+                feature_weights_dict[col] = 1.1
+            elif 'height' in col_str or 'weight' in col_str or 'bmi' in col_str:
+                feature_weights_dict[col] = 1.0
+            else:
+                feature_weights_dict[col] = 1.0
+        
+        df_transformed = similarity_engine.pca_transform(df_normalized, n_components=35, feature_weights=feature_weights_dict)
         percentiles = similarity_engine.calculate_percentiles(player_row, df)
         
         similar = similarity_engine.find_similar_players(
             df_transformed, actual_player_name, season, 
             num_neighbors=num_neighbors,
             metric='cosine',
-            filter_season=filter_season
+            filter_season=filter_season,
+            normalize_first=False,
+            use_pca=False
         )
+        
+        allowed_offensive_stats = [
+            'I_F_xGoals', 'I_F_goals', 'I_F_primaryAssists', 'I_F_secondaryAssists',
+            'I_F_shotsOnGoal', 'I_F_shotAttempts', 'I_F_points', 'I_F_giveaways',
+            'OnIce_F_xGoals', 'OnIce_F_goals'
+        ]
+        
+        allowed_defensive_stats = [
+            'OnIce_A_xGoals', 'OnIce_A_goals', 'onIce_corsiPercentage',
+            'I_F_hits', 'I_F_takeaways', 'shotsBlockedByPlayer'
+        ]
         
         offensive_stats = {}
         for k, v in percentiles.items():
-            if 'I_F' in k or 'OnIce_F' in k:
+            if k in allowed_offensive_stats:
                 if 'giveaways' in k.lower():
                     offensive_stats[k] = round(100 - v, 1)
                 else:
@@ -221,20 +255,34 @@ def search():
         
         defensive_stats = {}
         for k, v in percentiles.items():
-            k_lower = k.lower()
-            if 'OnIce_A' in k or 'hits' in k_lower or 'takeaways' in k_lower or 'shotsBlockedByPlayer' in k or 'Blocked' in k or 'corsipercentage' in k_lower:
+            if k in allowed_defensive_stats:
                 if 'OnIce_A_goals' in k or 'OnIce_A_xGoals' in k:
                     defensive_stats[k] = round(100 - v, 1)
                 else:
                     defensive_stats[k] = v
+        
+        biometrics = {}
+        if 'height' in player_row and pd.notna(player_row['height']):
+            height_inches = float(player_row['height'])
+            feet = int(height_inches // 12)
+            inches = int(height_inches % 12)
+            biometrics['height'] = f"{feet}'{inches}\""
+        if 'weight' in player_row and pd.notna(player_row['weight']):
+            biometrics['weight'] = float(player_row['weight'])
+        
+        team = None
+        if 'team' in player_row and pd.notna(player_row['team']):
+            team = str(player_row['team'])
         
         result = {
             'player': {
                 'name': actual_player_name,
                 'season': season,
                 'position': position,
-                'playerId': int(player_row['playerId'])
+                'playerId': int(player_row['playerId']),
+                'team': team
             },
+            'biometrics': biometrics,
             'percentiles': {
                 'offensive': offensive_stats,
                 'defensive': defensive_stats

@@ -13,7 +13,7 @@ class SimilarityEngine:
         }
     
     def normalize_columns(self, df, method='minmax'):
-        exclude_cols = ["playerId", "name", "position", "season"]
+        exclude_cols = ["playerId", "name", "position", "season", "team"]
         df_normalized = df.copy()
         cols_to_normalize = [col for col in df.columns if col not in exclude_cols]
         
@@ -30,12 +30,18 @@ class SimilarityEngine:
                 df_normalized[col] = scaler.fit_transform(df_normalized[[col]])
         return df_normalized
     
-    def pca_transform(self, df, n_components=35):
-        nonnum_columns = ["playerId", "name", "position", "season"]
-        numeric_columns = [col for col in df.columns if col not in nonnum_columns]
+    def pca_transform(self, df, n_components=35, feature_weights=None):
+        nonnum_columns = ["playerId", "name", "position", "season", "team"]
+        numeric_columns = [col for col in df.columns 
+                          if col not in nonnum_columns 
+                          and pd.api.types.is_numeric_dtype(df[col])]
         
         df_nonnum = df[nonnum_columns]
         df_numeric = df[numeric_columns]
+        
+        if feature_weights is not None:
+            weights_array = np.array([feature_weights.get(col, 1.0) for col in numeric_columns])
+            df_numeric = df_numeric * weights_array
         
         n_comp = min(n_components, len(numeric_columns))
         pca = PCA(n_components=n_comp)
@@ -58,7 +64,7 @@ class SimilarityEngine:
         return percentiles
     
     def find_similar_players(self, df, player_name, season, num_neighbors=7, 
-                            metric='euclidean', filter_season=None, 
+                            metric='cosine', filter_season=None, 
                             use_pca=True, normalize_first=True, normalization_method='minmax'):
         player_df = df[df['season'] == season]
         
@@ -71,7 +77,27 @@ class SimilarityEngine:
             df_processed = df.copy()
         
         if use_pca:
-            df_processed = self.pca_transform(df_processed, n_components=35)
+            feature_columns_pre = [col for col in df_processed.columns 
+                                  if col not in ["playerId", "name", "position", "season", "team"]]
+            
+            feature_weights_dict = {}
+            for col in feature_columns_pre:
+                col_str = str(col).lower()
+                if 'i_f_' in col_str or 'onice_f_' in col_str:
+                    if 'goals' in col_str or 'assists' in col_str or 'points' in col_str or 'xgoals' in col_str:
+                        feature_weights_dict[col] = 1.3
+                    else:
+                        feature_weights_dict[col] = 1.1
+                elif 'hits' in col_str or 'blocked' in col_str or 'takeaways' in col_str:
+                    feature_weights_dict[col] = 1.2
+                elif 'onice_a_' in col_str or 'corsi' in col_str:
+                    feature_weights_dict[col] = 1.1
+                elif 'height' in col_str or 'weight' in col_str or 'bmi' in col_str:
+                    feature_weights_dict[col] = 1.0
+                else:
+                    feature_weights_dict[col] = 1.0
+            
+            df_processed = self.pca_transform(df_processed, n_components=35, feature_weights=feature_weights_dict)
         
         player_df_full = df_processed[df_processed['season'] == season]
         if player_name not in player_df_full['name'].values:
@@ -83,13 +109,6 @@ class SimilarityEngine:
         
         player_row = player_full.iloc[0]
         player_id = int(player_row['playerId'])
-        
-        feature_columns = [col for col in df_processed.columns 
-                          if col not in ["playerId", "name", "position", "season"]]
-        player_features_full = player_row[feature_columns].values
-        
-        if len(player_features_full.shape) > 1:
-            player_features_full = player_features_full.flatten()
         
         if filter_season:
             try:
@@ -105,15 +124,52 @@ class SimilarityEngine:
             except ValueError:
                 raise ValueError("Invalid filter_season format")
         
-        features = df_processed.drop(columns=["playerId", "name", "position", "season"], 
+        feature_columns = [col for col in df_processed.columns 
+                          if col not in ["playerId", "name", "position", "season", "team"]]
+        
+        player_features_full = player_row[feature_columns].values
+        
+        if len(player_features_full.shape) > 1:
+            player_features_full = player_features_full.flatten()
+        
+        features = df_processed.drop(columns=["playerId", "name", "position", "season", "team"], 
                                      errors='ignore').values
-        names = df_processed[['name', 'season', 'playerId', 'position']].values
+        
+        if 'team' in df_processed.columns:
+            names = df_processed[['name', 'season', 'playerId', 'position', 'team']].values
+        else:
+            names = df_processed[['name', 'season', 'playerId', 'position']].values
         
         if len(df_processed) == 0:
             raise ValueError(f"No players found for filter_season: {filter_season}")
         
-        model = NearestNeighbors(metric=metric)
+        model = NearestNeighbors(metric=metric, n_jobs=-1)
         model.fit(features)
+        
+        sample_size = min(len(df_processed), 3000)
+        sample_indices = np.random.choice(len(df_processed), size=sample_size, replace=False) if len(df_processed) > sample_size else np.arange(len(df_processed))
+        
+        sample_distances, _ = model.kneighbors(
+            [player_features_full],
+            n_neighbors=min(sample_size, len(df_processed))
+        )
+        
+        if len(sample_distances[0]) == 0:
+            return []
+        
+        reference_distances = sample_distances[0]
+        reference_min = np.min(reference_distances)
+        reference_p10 = np.percentile(reference_distances, 10)
+        reference_p25 = np.percentile(reference_distances, 25)
+        reference_p50 = np.percentile(reference_distances, 50)
+        reference_p75 = np.percentile(reference_distances, 75)
+        reference_p90 = np.percentile(reference_distances, 90)
+        
+        iqr = reference_p75 - reference_p25
+        if iqr == 0:
+            iqr = max(reference_p50 - reference_min, reference_p90 - reference_p10, 0.01)
+        
+        scale_factor = iqr * 2.0
         
         requested_neighbors = min(len(df_processed), num_neighbors + 20)
         
@@ -125,23 +181,29 @@ class SimilarityEngine:
         if len(distances[0]) == 0:
             return []
         
-        min_dist, max_dist = np.min(distances[0]), np.max(distances[0])
-        if max_dist == min_dist:
-            similarities = np.full(len(distances[0]), 100.0)
-        else:
-            normalized_distances = (distances[0] - min_dist) / (max_dist - min_dist)
-            similarities = (1 - normalized_distances) * 100
+        normalized_distances = (distances[0] - reference_min) / scale_factor
+        similarities = 100 * np.exp(-normalized_distances)
+        
+        max_similarity = np.max(similarities)
+        if max_similarity > 90:
+            scale_adjustment = 90 / max_similarity
+            similarities = similarities * scale_adjustment
+        
+        similarities = np.clip(similarities, 0, 100)
         
         all_neighbors = []
         for idx, similarity in zip(indices[0], similarities):
             if idx < len(names):
-                all_neighbors.append({
+                neighbor_data = {
                     'name': str(names[idx][0]),
                     'season': int(names[idx][1]),
                     'playerId': int(names[idx][2]),
                     'position': str(names[idx][3]) if len(names[idx]) > 3 else 'F',
                     'similarity': round(similarity, 1)
-                })
+                }
+                if len(names[idx]) > 4 and pd.notna(names[idx][4]):
+                    neighbor_data['team'] = str(names[idx][4])
+                all_neighbors.append(neighbor_data)
         
         neighbors = []
         for n in all_neighbors:

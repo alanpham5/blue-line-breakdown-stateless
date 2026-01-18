@@ -17,6 +17,13 @@ def process_data():
     
     forwards_raw, defensemen_raw = data_loader.load_all_seasons(2008, 2026)
     
+    if not forwards_raw:
+        raise ValueError("No forwards raw data loaded. Check data source and network connection.")
+    if not defensemen_raw:
+        raise ValueError("No defensemen raw data loaded. Check data source and network connection.")
+    
+    print(f"Loaded {len(forwards_raw)} years of forwards data and {len(defensemen_raw)} years of defensemen data", flush=True)
+    
     forwards_processed = {}
     defensemen_processed = {}
     
@@ -34,7 +41,14 @@ def process_data():
             forwards_processed[year] = f_data
             defensemen_processed[year] = d_data
         except Exception as e:
-            pass
+            print(f"Error processing year {year}: {str(e)}", flush=True)
+            import traceback
+            traceback.print_exc()
+    
+    if not forwards_processed:
+        raise ValueError("No forwards data processed. Check data loading and processing.")
+    if not defensemen_processed:
+        raise ValueError("No defensemen data processed. Check data loading and processing.")
     
     forwards_df = pd.concat(forwards_processed.values(), ignore_index=True)
     defensemen_df = pd.concat(defensemen_processed.values(), ignore_index=True)
