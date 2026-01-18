@@ -272,8 +272,9 @@ class SimilarityEngine:
         candidate_neighbors.append(player_self)
         
         for n in candidate_neighbors:
+            if n['playerId'] == player_id:
+                continue
             season_diff = abs(n['season'] - season)
-
             era_penalty = 30 - season_diff
             n['similarity'] = n['similarity'] - era_penalty
         
