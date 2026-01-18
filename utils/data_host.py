@@ -43,13 +43,8 @@ class DataHostManager:
     
     def get_base_url(self):
         if self.github_repo and self.repo_base:
-            latest_tag = self.get_latest_release_tag()
-            if latest_tag:
-                return f"{self.repo_base}/{latest_tag}"
-        fallback = os.environ.get(
-            'DATA_HOST_URL',
-            f"{self.repo_base}/latest" if self.repo_base else ""
-        )
+            return f"{self.repo_base}/latest"
+        fallback = os.environ.get('DATA_HOST_URL', "")
         return fallback
     
     def get_release_by_tag(self, tag):
@@ -79,54 +74,24 @@ class DataHostManager:
             'Accept': 'text/csv,application/octet-stream,*/*'
         }
         
-        github_token = os.environ.get('GITHUB_TOKEN')
-        if github_token:
-            headers['Authorization'] = f'token {github_token}'
+        if not self.github_repo or not self.repo_base:
+            return None
         
-        if not self._latest_release_data:
-            self.get_latest_release_tag()
+        base_url = self.get_base_url()
+        if not base_url:
+            return None
         
-        if self._latest_release_data:
-            assets = self._latest_release_data.get('assets', [])
-            asset_names = [asset.get('name') for asset in assets]
-            
-            if filename in asset_names:
-                for asset in assets:
-                    if asset.get('name') == filename:
-                        asset_url = asset.get('url')
-                        browser_url = asset.get('browser_download_url')
-                        
-                        if asset_url and github_token:
-                            try:
-                                api_headers = {
-                                    'Authorization': f'token {github_token}',
-                                    'Accept': 'application/octet-stream'
-                                }
-                                response = requests.get(asset_url, headers=api_headers, timeout=30, allow_redirects=True)
-                                response.raise_for_status()
-                                df = pd.read_csv(StringIO(response.text))
-                                return df
-                            except Exception as e_api:
-                                pass
-                        
-                        if browser_url:
-                            try:
-                                response = requests.get(browser_url, headers=headers, timeout=30, allow_redirects=True)
-                                response.raise_for_status()
-                                df = pd.read_csv(StringIO(response.text))
-                                return df
-                            except Exception as e2:
-                                continue
-                        continue
-                return None
-            else:
-                return None
-        else:
+        file_url = f"{base_url}/{filename}"
+        
+        try:
+            response = requests.get(file_url, headers=headers, timeout=30, allow_redirects=True)
+            response.raise_for_status()
+            df = pd.read_csv(StringIO(response.text))
+            return df
+        except Exception as e:
             return None
     
     def load_processed_data(self):
-        latest_tag = self.get_latest_release_tag()
-        
         forwards = self.load_from_url("forwards_processed.csv")
         defensemen = self.load_from_url("defensemen_processed.csv")
         
