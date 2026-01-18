@@ -49,13 +49,19 @@ def initialize_data(force_reload=False):
     if cache['loaded'] and not force_reload:
         return
     
-    forwards_hosted, defensemen_hosted = data_host.load_processed_data()
+    cache['loaded'] = False
+    cache['forwards'] = None
+    cache['defensemen'] = None
     
-    if forwards_hosted is not None and defensemen_hosted is not None:
-        cache['forwards'] = forwards_hosted
-        cache['defensemen'] = defensemen_hosted
-        cache['loaded'] = True
-        return
+    try:
+        forwards_hosted, defensemen_hosted = data_host.load_processed_data()
+        if forwards_hosted is not None and defensemen_hosted is not None:
+            cache['forwards'] = forwards_hosted
+            cache['defensemen'] = defensemen_hosted
+            cache['loaded'] = True
+            return
+    except Exception as e:
+        pass
     
     forwards_cached, defensemen_cached = cache_manager.load_processed_data()
     
@@ -65,7 +71,6 @@ def initialize_data(force_reload=False):
         cache['loaded'] = True
         return
     
-    raise Exception("Data not available. Please ensure data files are hosted and DATA_HOST_URL is set correctly.")
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -76,17 +81,32 @@ def init():
     try:
         initialize_data(force_reload=True)
         if cache['loaded']:
+            source = 'hosted' if cache['forwards'] is not None and hasattr(cache['forwards'], 'shape') else 'cache'
+            forwards_count = len(cache['forwards']) if cache['forwards'] is not None else 0
+            defensemen_count = len(cache['defensemen']) if cache['defensemen'] is not None else 0
+            
             return jsonify({
                 'status': 'success', 
-                'message': 'Data loaded successfully from hosted source'
+                'message': f'Data loaded successfully from {source}',
+                'details': {
+                    'forwards_rows': forwards_count,
+                    'defensemen_rows': defensemen_count,
+                }
             })
         else:
             return jsonify({
                 'status': 'error',
-                'message': 'Failed to load data. Check DATA_HOST_URL configuration.'
+                'message': 'Failed to load data from both hosted source and local cache. Please ensure data files exist.',
+                'details': {
+                    'cache_exists': cache_manager.cache_exists("forwards_processed.csv") and cache_manager.cache_exists("defensemen_processed.csv")
+                }
             }), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
 
 @app.route('/search', methods=['GET', 'POST'])
 def search():
@@ -101,12 +121,15 @@ def search():
     
     try:
         if not cache['loaded']:
-            forwards_hosted, defensemen_hosted = data_host.load_processed_data()
-            if forwards_hosted is not None and defensemen_hosted is not None:
-                cache['forwards'] = forwards_hosted
-                cache['defensemen'] = defensemen_hosted
-                cache['loaded'] = True
-            else:
+            try:
+                forwards_hosted, defensemen_hosted = data_host.load_processed_data()
+                if forwards_hosted is not None and defensemen_hosted is not None:
+                    cache['forwards'] = forwards_hosted
+                    cache['defensemen'] = defensemen_hosted
+                    cache['loaded'] = True
+                else:
+                    raise ValueError("Hosted data not available")
+            except Exception:
                 forwards_cached, defensemen_cached = cache_manager.load_processed_data()
                 if forwards_cached is not None and defensemen_cached is not None:
                     cache['forwards'] = forwards_cached
@@ -114,7 +137,7 @@ def search():
                     cache['loaded'] = True
                 else:
                     return jsonify({
-                        'error': 'Data not available. Please ensure data files are hosted and DATA_HOST_URL is configured.'
+                        'error': 'Data not available. Please ensure data files are hosted and DATA_HOST_URL is configured, or run the data processing script to generate local cache files.'
                     }), 503
         
         data = request.json
