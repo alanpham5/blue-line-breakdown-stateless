@@ -18,6 +18,147 @@ from utils.data_host import DataHostManager
 from difflib import get_close_matches
 import pandas as pd
 
+def determine_archetypes(player_row, df, position):
+    archetypes = []
+    
+    if df is None or len(df) == 0:
+        return archetypes
+    
+    if position == 'F':
+        def safe_get(col_name, default=0):
+            val = player_row.get(col_name, default)
+            if pd.isna(val):
+                return default
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return default
+        
+        goals = safe_get('I_F_goals', 0)
+        primary_assists = safe_get('I_F_primaryAssists', 0)
+        secondary_assists = safe_get('I_F_secondaryAssists', 0)
+        points = safe_get('I_F_points', 0)
+        shots = safe_get('I_F_shotsOnGoal', 0)
+        shot_attempts = safe_get('I_F_shotAttempts', 0)
+        hits = safe_get('I_F_hits', 0)
+        takeaways = safe_get('I_F_takeaways', 0)
+        giveaways = safe_get('I_F_giveaways', 0)
+        goals_against = safe_get('OnIce_A_goals', 0)
+        xgoals_against = safe_get('OnIce_A_xGoals', 0)
+        blocked_shots = safe_get('shotsBlockedByPlayer', 0)
+        height = safe_get('height', 0)
+        weight = safe_get('weight', 0)
+        corsiPercentage = safe_get('onIce_corsiPercentage', 0)
+        
+        df_forwards = df
+        
+        if len(df_forwards) == 0:
+            return archetypes
+        
+        total_assists = primary_assists + secondary_assists
+        goals_to_assists = goals / max(total_assists, 0.1)
+        assists_to_goals = total_assists / max(goals, 0.1)
+        
+        def safe_quantile(col_name, q, default=0):
+            if col_name not in df_forwards.columns:
+                return default
+            val = df_forwards[col_name].quantile(q)
+            return val if pd.notna(val) else default
+        
+        goals_p75 = safe_quantile('I_F_goals', 0.75)
+        assists_p75 = safe_quantile('I_F_primaryAssists', 0.75)
+        points_p75 = safe_quantile('I_F_points', 0.75)
+        shots_p75 = safe_quantile('I_F_shotsOnGoal', 0.75)
+        shot_attempts_p75 = safe_quantile('I_F_shotAttempts', 0.75)
+        hits_p75 = safe_quantile('I_F_hits', 0.75)
+        takeaways_p75 = safe_quantile('I_F_takeaways', 0.75)
+        goals_against_p75 = safe_quantile('OnIce_A_goals', 0.75, float('inf'))
+        blocked_p75 = safe_quantile('shotsBlockedByPlayer', 0.75)
+        corsiPercentage_p75 = safe_quantile('onIce_corsiPercentage', 0.75)
+        giveaways_p25 = safe_quantile('I_F_giveaways', 0.25, float('inf'))
+        
+        if goals >= goals_p75 and shot_attempts >= shot_attempts_p75:
+            archetypes.append('Sniper')
+        
+        if total_assists >= assists_p75 and points >= points_p75 and assists_to_goals >= 1.2 and total_assists > goals:
+            archetypes.append('Playmaker')
+        
+        if hits >= hits_p75 and points >= points_p75 and (height >= 72 and weight >= 200) and hits > blocked_shots:
+            archetypes.append('Power Forward')
+        
+        if ((blocked_shots >= blocked_p75) or (takeaways >= takeaways_p75)) and giveaways <= giveaways_p25:
+            archetypes.append('Defensive Forward')
+        
+        if points >= points_p75 and goals_against <= goals_against_p75 and corsiPercentage >= corsiPercentage_p75 and (takeaways >= takeaways_p75 or blocked_shots >= blocked_p75):
+            archetypes.append('Two-Way')
+        
+        if hits >= hits_p75 and blocked_shots >= blocked_p75 and points < points_p75:
+            archetypes.append('Grinder')
+    
+    elif position == 'D':
+        def safe_get(col_name, default=0):
+            val = player_row.get(col_name, default)
+            if pd.isna(val):
+                return default
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return default
+        
+        goals = safe_get('I_F_goals', 0)
+        primary_assists = safe_get('I_F_primaryAssists', 0)
+        secondary_assists = safe_get('I_F_secondaryAssists', 0)
+        points = safe_get('I_F_points', 0)
+        shots = safe_get('I_F_shotsOnGoal', 0)
+        shot_attempts = safe_get('I_F_shotAttempts', 0)
+        hits = safe_get('I_F_hits', 0)
+        blocked_shots = safe_get('shotsBlockedByPlayer', 0)
+        goals_against = safe_get('OnIce_A_goals', 0)
+        xgoals_against = safe_get('OnIce_A_xGoals', 0)
+        takeaways = safe_get('I_F_takeaways', 0)
+        height = safe_get('height', 0)
+        weight = safe_get('weight', 0)
+        corsiPercentage = safe_get('onIce_corsiPercentage', 0)
+        
+        df_defensemen = df
+        
+        if len(df_defensemen) == 0:
+            return archetypes
+        
+        def safe_quantile_d(col_name, q, default=0):
+            if col_name not in df_defensemen.columns:
+                return default
+            val = df_defensemen[col_name].quantile(q)
+            return val if pd.notna(val) else default
+        
+        points_p75 = safe_quantile_d('I_F_points', 0.75)
+        goals_p75 = safe_quantile_d('I_F_goals', 0.75)
+        assists_p75 = safe_quantile_d('I_F_primaryAssists', 0.75)
+        shot_attempts_p75 = safe_quantile_d('I_F_shotAttempts', 0.75)
+        hits_p75 = safe_quantile_d('I_F_hits', 0.75)
+        blocked_p75 = safe_quantile_d('shotsBlockedByPlayer', 0.75)
+        goals_against_p75 = safe_quantile_d('OnIce_A_goals', 0.75, float('inf'))
+        corsiPercentage_p75 = safe_quantile_d('onIce_corsiPercentage', 0.75)
+        
+        total_assists = primary_assists + secondary_assists
+        
+        if shot_attempts >= shot_attempts_p75 and goals >= goals_p75:
+            archetypes.append('Point Shooter')
+        
+        if points >= points_p75 and (total_assists >= assists_p75 or goals >= goals_p75):
+            archetypes.append('Offensive Puck-Mover')
+        
+        if points >= points_p75 and goals_against <= goals_against_p75 and corsiPercentage >= corsiPercentage_p75:
+            archetypes.append('Two-Way')
+        
+        if hits >= hits_p75 and blocked_shots >= blocked_p75 and points < points_p75:
+            archetypes.append('Grinder')
+        
+        if blocked_shots >= blocked_p75:
+            archetypes.append('Shot Blocker')
+    
+    return archetypes
+
 app = Flask(__name__)
 CORS(app)
 
@@ -63,15 +204,11 @@ def initialize_data(force_reload=False):
         cache['loaded'] = True
         return
     
-    try:
-        forwards_hosted, defensemen_hosted = data_host.load_processed_data()
-        if forwards_hosted is not None and defensemen_hosted is not None:
-            cache['forwards'] = forwards_hosted
-            cache['defensemen'] = defensemen_hosted
-            cache['loaded'] = True
-            return
-    except Exception as e:
-        pass
+    forwards_hosted, defensemen_hosted = data_host.load_processed_data()
+    if forwards_hosted is not None and defensemen_hosted is not None:
+        cache['forwards'] = forwards_hosted
+        cache['defensemen'] = defensemen_hosted
+        cache['loaded'] = True
 
 def load_data_in_background():
     loading_state['in_progress'] = True
@@ -155,15 +292,12 @@ def search():
     
     try:
         if not cache['loaded']:
-            try:
-                forwards_hosted, defensemen_hosted = data_host.load_processed_data()
-                if forwards_hosted is not None and defensemen_hosted is not None:
-                    cache['forwards'] = forwards_hosted
-                    cache['defensemen'] = defensemen_hosted
-                    cache['loaded'] = True
-                else:
-                    raise ValueError("Hosted data not available")
-            except Exception:
+            forwards_hosted, defensemen_hosted = data_host.load_processed_data()
+            if forwards_hosted is not None and defensemen_hosted is not None:
+                cache['forwards'] = forwards_hosted
+                cache['defensemen'] = defensemen_hosted
+                cache['loaded'] = True
+            else:
                 forwards_cached, defensemen_cached = cache_manager.load_processed_data()
                 if forwards_cached is not None and defensemen_cached is not None:
                     cache['forwards'] = forwards_cached
@@ -274,13 +408,16 @@ def search():
         if 'team' in player_row and pd.notna(player_row['team']):
             team = str(player_row['team'])
         
+        archetypes = determine_archetypes(player_row, df, position)
+        
         result = {
             'player': {
                 'name': actual_player_name,
                 'season': season,
                 'position': position,
                 'playerId': int(player_row['playerId']),
-                'team': team
+                'team': team,
+                'archetypes': archetypes
             },
             'biometrics': biometrics,
             'percentiles': {

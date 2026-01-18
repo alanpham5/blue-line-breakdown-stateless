@@ -1,5 +1,8 @@
 import pandas as pd
 import numpy as np
+import warnings
+warnings.filterwarnings('ignore', category=RuntimeWarning)
+warnings.filterwarnings('ignore', category=UserWarning)
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
 from sklearn.decomposition import PCA
@@ -37,15 +40,65 @@ class SimilarityEngine:
                           and pd.api.types.is_numeric_dtype(df[col])]
         
         df_nonnum = df[nonnum_columns]
-        df_numeric = df[numeric_columns]
+        df_numeric = df[numeric_columns].copy()
+        
+        df_numeric = df_numeric.replace([np.inf, -np.inf], np.nan)
+        df_numeric = df_numeric.fillna(0)
+        df_numeric = df_numeric.clip(lower=-1e6, upper=1e6)
         
         if feature_weights is not None:
             weights_array = np.array([feature_weights.get(col, 1.0) for col in numeric_columns])
             df_numeric = df_numeric * weights_array
+            df_numeric = df_numeric.replace([np.inf, -np.inf], np.nan)
+            df_numeric = df_numeric.fillna(0)
+            df_numeric = df_numeric.clip(lower=-1e6, upper=1e6)
         
-        n_comp = min(n_components, len(numeric_columns))
-        pca = PCA(n_components=n_comp)
-        trans_df = pca.fit_transform(df_numeric)
+        variance_threshold = 1e-8
+        variances = df_numeric.var()
+        valid_columns = variances[variances > variance_threshold].index.tolist()
+        df_numeric = df_numeric[valid_columns]
+        
+        if len(valid_columns) == 0:
+            raise ValueError("No valid numeric columns with sufficient variance for PCA")
+        
+        from sklearn.preprocessing import StandardScaler
+        with np.errstate(all='ignore'):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                scaler = StandardScaler()
+                df_numeric_scaled = scaler.fit_transform(df_numeric)
+                df_numeric = pd.DataFrame(
+                    df_numeric_scaled,
+                    columns=df_numeric.columns,
+                    index=df_numeric.index
+                )
+        
+        df_numeric = df_numeric.replace([np.inf, -np.inf], np.nan)
+        df_numeric = df_numeric.fillna(0)
+        df_numeric = df_numeric.clip(lower=-100, upper=100)
+        
+        df_numeric_values = df_numeric.values.astype(np.float64)
+        df_numeric_values = np.nan_to_num(df_numeric_values, nan=0.0, posinf=100.0, neginf=-100.0)
+        df_numeric_values = np.clip(df_numeric_values, -100, 100)
+        
+        n_comp = min(n_components, len(valid_columns))
+        if n_comp < 1:
+            raise ValueError("Not enough components for PCA")
+        
+        try:
+            with np.errstate(all='ignore'):
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    pca = PCA(n_components=n_comp, svd_solver='auto')
+                    trans_df = pca.fit_transform(df_numeric_values)
+        except (ValueError, np.linalg.LinAlgError):
+            with np.errstate(all='ignore'):
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    df_numeric_values = np.clip(df_numeric_values, -50, 50)
+                    df_numeric_values = np.nan_to_num(df_numeric_values, nan=0.0, posinf=50.0, neginf=-50.0)
+                    pca = PCA(n_components=n_comp, svd_solver='arpack')
+                    trans_df = pca.fit_transform(df_numeric_values)
         
         new_df = pd.DataFrame(trans_df, index=df.index)
         new_df = pd.concat([df_nonnum.reset_index(drop=True), 
@@ -111,18 +164,15 @@ class SimilarityEngine:
         player_id = int(player_row['playerId'])
         
         if filter_season:
-            try:
-                if '-' in str(filter_season):
-                    start, end = map(int, str(filter_season).split('-'))
-                    if end < 100:
-                        end += (start // 100) * 100
-                    df_processed = df_processed[(df_processed['season'] >= start) & 
-                                               (df_processed['season'] <= end)]
-                else:
-                    single_season = int(filter_season)
-                    df_processed = df_processed[df_processed['season'] == single_season]
-            except ValueError:
-                raise ValueError("Invalid filter_season format")
+            if '-' in str(filter_season):
+                start, end = map(int, str(filter_season).split('-'))
+                if end < 100:
+                    end += (start // 100) * 100
+                df_processed = df_processed[(df_processed['season'] >= start) & 
+                                           (df_processed['season'] <= end)]
+            else:
+                single_season = int(filter_season)
+                df_processed = df_processed[df_processed['season'] == single_season]
         
         feature_columns = [col for col in df_processed.columns 
                           if col not in ["playerId", "name", "position", "season", "team"]]
