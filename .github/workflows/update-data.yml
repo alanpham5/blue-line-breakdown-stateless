@@ -1,0 +1,120 @@
+name: Update NHL Data
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  process-and-upload:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install PyGithub boto3
+      
+      - name: Process data
+        run: |
+          python -c "
+          from utils.data_loader import DataLoader
+          from utils.data_processor import DataProcessor
+          from utils.cache_manager import CacheManager
+          import pandas as pd
+          
+          data_loader = DataLoader()
+          data_processor = DataProcessor()
+          
+          forwards_raw, defensemen_raw = data_loader.load_all_seasons(2008, 2026)
+          
+          forwards_processed = {}
+          defensemen_processed = {}
+          
+          for year in forwards_raw.keys():
+              try:
+                  f_data = data_processor.process_data(forwards_raw[year], data_loader.player_bio)
+                  d_data = data_processor.process_data(defensemen_raw[year], data_loader.player_bio)
+                  
+                  f_data = data_processor.impute_data(f_data)
+                  d_data = data_processor.impute_data(d_data)
+                  
+                  f_data = data_processor.scale_stats_per_60_min(f_data)
+                  d_data = data_processor.scale_stats_per_60_min(d_data)
+                  
+                  forwards_processed[year] = f_data
+                  defensemen_processed[year] = d_data
+              except Exception as e:
+                  pass
+          
+          forwards_df = pd.concat(forwards_processed.values(), ignore_index=True)
+          defensemen_df = pd.concat(defensemen_processed.values(), ignore_index=True)
+          
+          cache_manager = CacheManager(cache_dir='csv_cache')
+          
+          try:
+              cache_manager.save_processed_data(forwards_df, defensemen_df)
+          except Exception as e:
+              raise
+          "
+      
+      - name: Verify files exist
+        run: |
+          echo "Checking for CSV files..."
+          echo "Current directory: $(pwd)"
+          if [ -d "csv_cache" ]; then
+            echo "Directory exists, listing contents:"
+            ls -la csv_cache/
+          else
+            echo "Directory csv_cache/ does not exist"
+            ls -la
+            exit 1
+          fi
+          if [ -f "csv_cache/forwards_processed.csv" ]; then
+            echo "✓ forwards_processed.csv exists"
+            wc -l csv_cache/forwards_processed.csv
+          else
+            echo "✗ forwards_processed.csv NOT FOUND"
+            exit 1
+          fi
+          if [ -f "csv_cache/defensemen_processed.csv" ]; then
+            echo "✓ defensemen_processed.csv exists"
+            wc -l csv_cache/defensemen_processed.csv
+          else
+            echo "✗ defensemen_processed.csv NOT FOUND"
+            exit 1
+          fi
+      
+      - name: Delete old latest tag if exists
+        if: success()
+        run: |
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          git tag -d latest 2>/dev/null || true
+          git push origin :refs/tags/latest 2>/dev/null || true
+      
+      - name: Create Release with Data Files
+        if: success()
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            csv_cache/forwards_processed.csv
+            csv_cache/defensemen_processed.csv
+          tag_name: latest
+          name: Data Update ${{ github.run_number }}
+          body: |
+            Automated daily data update
+            - Processed on: ${{ github.run_id }}
+            - Commit: ${{ github.sha }}
+            - Date: ${{ github.event.head_commit.timestamp }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

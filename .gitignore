@@ -1,0 +1,7 @@
+
+venv/
+.env
+.env.local
+csv_cache/
+.DS_Store
+*.pyc
