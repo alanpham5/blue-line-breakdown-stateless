@@ -211,8 +211,13 @@ def search():
             filter_season=filter_season
         )
         
-        offensive_stats = {k: v for k, v in percentiles.items() 
-                          if 'I_F' in k or 'OnIce_F' in k}
+        offensive_stats = {}
+        for k, v in percentiles.items():
+            if 'I_F' in k or 'OnIce_F' in k:
+                if 'giveaways' in k.lower():
+                    offensive_stats[k] = round(100 - v, 1)
+                else:
+                    offensive_stats[k] = v
         
         defensive_stats = {}
         for k, v in percentiles.items():
