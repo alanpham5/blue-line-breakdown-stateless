@@ -24,6 +24,27 @@ cache = {'forwards': None, 'defensemen': None, 'loaded': False}
 cache_manager = CacheManager()
 data_host = DataHostManager()
 
+def find_player_in_dataframe(df, player_name, season):
+    player_name_lower = player_name.lower().strip()
+    
+    df_season = df[df['season'] == season]
+    if df_season.empty:
+        return None
+    
+    exact_match = df_season[df_season['name'].str.lower() == player_name_lower]
+    if not exact_match.empty:
+        return exact_match.iloc[0]
+    
+    all_seasons_match = df[df['name'].str.lower() == player_name_lower]
+    if not all_seasons_match.empty:
+        candidate_player_ids = all_seasons_match['playerId'].unique()
+        for player_id in candidate_player_ids:
+            player_in_season = df_season[df_season['playerId'] == player_id]
+            if not player_in_season.empty:
+                return player_in_season.iloc[0]
+    
+    return None
+
 def initialize_data(force_reload=False):
     if cache['loaded'] and not force_reload:
         return
@@ -108,9 +129,10 @@ def search():
         
         df = cache['forwards'] if position == 'F' else cache['defensemen']
         
-        player_data = df[(df['name'] == player_name) & (df['season'] == season)]
-        if player_data.empty:
-            all_names = df['name'].unique()
+        player_row = find_player_in_dataframe(df, player_name, season)
+        if player_row is None:
+            df_season = df[df['season'] == season]
+            all_names = df_season['name'].unique() if not df_season.empty else df['name'].unique()
             suggestions = get_close_matches(player_name, all_names, n=5, cutoff=0.6)
             
             return jsonify({
@@ -118,15 +140,15 @@ def search():
                 'suggestions': suggestions
             }), 404
         
+        actual_player_name = player_row['name']
+        
         similarity_engine = SimilarityEngine()
         df_normalized = similarity_engine.normalize_columns(df, method='minmax')
         df_transformed = similarity_engine.pca_transform(df_normalized, n_components=35)
-        
-        player_row = player_data.iloc[0]
         percentiles = similarity_engine.calculate_percentiles(player_row, df)
         
         similar = similarity_engine.find_similar_players(
-            df_transformed, player_name, season, 
+            df_transformed, actual_player_name, season, 
             num_neighbors=num_neighbors,
             metric='cosine',
             filter_season=filter_season
@@ -139,7 +161,7 @@ def search():
         
         result = {
             'player': {
-                'name': player_name,
+                'name': actual_player_name,
                 'season': season,
                 'position': position,
                 'playerId': int(player_row['playerId'])

@@ -13,7 +13,6 @@ class SimilarityEngine:
         }
     
     def normalize_columns(self, df, method='minmax'):
-        """Normalize columns - should be done BEFORE PCA to match notebook"""
         exclude_cols = ["playerId", "name", "position", "season"]
         df_normalized = df.copy()
         cols_to_normalize = [col for col in df.columns if col not in exclude_cols]
@@ -32,7 +31,6 @@ class SimilarityEngine:
         return df_normalized
     
     def pca_transform(self, df, n_components=35):
-        """Apply PCA transformation - matches notebook implementation"""
         nonnum_columns = ["playerId", "name", "position", "season"]
         numeric_columns = [col for col in df.columns if col not in nonnum_columns]
         
@@ -62,20 +60,6 @@ class SimilarityEngine:
     def find_similar_players(self, df, player_name, season, num_neighbors=7, 
                             metric='euclidean', filter_season=None, 
                             use_pca=True, normalize_first=True, normalization_method='minmax'):
-        """
-        Find similar players matching the notebook's methodology.
-        
-        Parameters:
-        - df: DataFrame with ALL seasons concatenated
-        - player_name: Name of reference player
-        - season: Season of reference player
-        - num_neighbors: Number of similar players to return
-        - metric: Distance metric ('euclidean', 'manhattan', 'cosine', 'chebyshev')
-        - filter_season: Filter results to specific season(s) (e.g., "2022-26" or "2022")
-        - use_pca: Whether to apply PCA transformation
-        - normalize_first: Whether to normalize before PCA
-        - normalization_method: 'minmax', 'standard', or 'robust'
-        """
         player_df = df[df['season'] == season]
         
         if player_name not in player_df['name'].values:
@@ -98,6 +82,7 @@ class SimilarityEngine:
             raise ValueError(f"Player {player_name} not found in season {season}")
         
         player_row = player_full.iloc[0]
+        player_id = int(player_row['playerId'])
         
         feature_columns = [col for col in df_processed.columns 
                           if col not in ["playerId", "name", "position", "season"]]
@@ -130,9 +115,11 @@ class SimilarityEngine:
         model = NearestNeighbors(metric=metric)
         model.fit(features)
         
+        requested_neighbors = min(len(df_processed), num_neighbors + 20)
+        
         distances, indices = model.kneighbors(
             [player_features_full], 
-            n_neighbors=min(len(df_processed), num_neighbors + 10)
+            n_neighbors=requested_neighbors
         )
         
         if len(distances[0]) == 0:
@@ -156,5 +143,11 @@ class SimilarityEngine:
                     'similarity': round(similarity, 1)
                 })
         
-        neighbors = [n for n in all_neighbors if n['name'] != player_name][:num_neighbors]
+        neighbors = []
+        for n in all_neighbors:
+            if n['playerId'] != player_id:
+                neighbors.append(n)
+                if len(neighbors) >= num_neighbors:
+                    break
+        
         return neighbors
