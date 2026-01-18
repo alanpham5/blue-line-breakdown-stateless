@@ -89,7 +89,11 @@ class DataHostManager:
                 return None
             response.raise_for_status()
             df = pd.read_csv(StringIO(response.text))
+            if df.empty:
+                return None
             return df
+        except requests.exceptions.HTTPError as e:
+            return None
         except requests.exceptions.RequestException:
             return None
         except Exception:

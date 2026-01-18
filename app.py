@@ -82,13 +82,14 @@ def load_data_in_background():
         if not cache['loaded']:
             cache_exists = cache_manager.cache_exists("forwards_processed.csv") and cache_manager.cache_exists("defensemen_processed.csv")
             github_repo = os.environ.get('GITHUB_REPO', 'Not set')
-            error_msg = 'Failed to load data from both hosted source and local cache'
-            if not cache_exists and not github_repo:
-                error_msg += '. No local cache found and GITHUB_REPO not configured.'
-            elif not cache_exists:
-                error_msg += f'. No local cache found. GITHUB_REPO: {github_repo}'
-            elif github_repo == 'Not set':
-                error_msg += '. GITHUB_REPO not configured.'
+            
+            if github_repo and github_repo != 'Not set':
+                base_url = data_host.get_base_url()
+                forwards_url = f"{base_url}/forwards_processed.csv" if base_url else "N/A"
+                error_msg = f'Failed to load data. No local cache found. GitHub URL returned 404: {forwards_url}. Please create a release tagged "latest" with forwards_processed.csv and defensemen_processed.csv files, or run the data processing script locally to create cache files.'
+            else:
+                error_msg = 'Failed to load data. No local cache found and GITHUB_REPO not configured. Please set GITHUB_REPO or run the data processing script to create local cache files.'
+            
             loading_state['error'] = error_msg
     except Exception as e:
         import traceback
