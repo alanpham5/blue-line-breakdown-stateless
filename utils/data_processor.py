@@ -12,7 +12,7 @@ class DataProcessor:
             "I_F_shotsOnGoal", "I_F_shotAttempts", "I_F_points", "I_F_hits",
             "I_F_takeaways", "I_F_giveaways", "shotsBlockedByPlayer",
             "OnIce_F_xGoals", "OnIce_F_goals",
-            "OnIce_A_xGoals", "OnIce_A_goals"
+            "OnIce_A_xGoals", "OnIce_A_goals", "onIce_corsiPercentage"
         ]
         self.nonnum_columns = ["playerId", "name", "position", "season"]
     
@@ -54,7 +54,7 @@ class DataProcessor:
         df['icetime_hours'] = df['icetime'] / 3600
         stats_columns = [col for col in df.columns if col not in 
                         ["playerId", "name", "season", 'height', 'weight', 
-                         "age", "bmi", "position", "icetime"]]
+                         "age", "bmi", "position", "icetime", "onIce_corsiPercentage"]]
         df_scaled = df.copy()
         df_scaled[stats_columns] = df[stats_columns].div(df['icetime_hours'], axis=0)
         

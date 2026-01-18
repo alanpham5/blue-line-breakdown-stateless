@@ -159,7 +159,8 @@ def search():
         
         defensive_stats = {}
         for k, v in percentiles.items():
-            if 'OnIce_A' in k or 'hits' in k or 'takeaways' in k or 'shotsBlockedByPlayer' in k or 'Blocked' in k:
+            k_lower = k.lower()
+            if 'OnIce_A' in k or 'hits' in k_lower or 'takeaways' in k_lower or 'shotsBlockedByPlayer' in k or 'Blocked' in k or 'corsipercentage' in k_lower:
                 if 'OnIce_A_goals' in k or 'OnIce_A_xGoals' in k:
                     defensive_stats[k] = round(100 - v, 1)
                 else:
