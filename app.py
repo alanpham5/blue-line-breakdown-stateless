@@ -408,6 +408,162 @@ def search():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/teams', methods=['GET'])
+def get_teams():
+    try:
+        year = request.args.get('year')
+        if not year:
+            return jsonify({'error': 'year parameter is required'}), 400
+        
+        year = int(year)
+        
+        # Load data if not already cached
+        if not cache['loaded']:
+            forwards_cached, defensemen_cached = cache_manager.load_processed_data()
+            if forwards_cached is not None and defensemen_cached is not None:
+                cache['forwards'] = forwards_cached
+                cache['defensemen'] = defensemen_cached
+                cache['loaded'] = True
+            else:
+                forwards_hosted, defensemen_hosted = data_host.load_processed_data()
+                if forwards_hosted is not None and defensemen_hosted is not None:
+                    cache['forwards'] = forwards_hosted
+                    cache['defensemen'] = defensemen_hosted
+                    cache['loaded'] = True
+                else:
+                    return jsonify({
+                        'error': 'Data not available. Please ensure data files are hosted and DATA_HOST_URL is configured, or run the data processing script to generate local cache files.'
+                    }), 503
+        
+        # Combine forwards and defensemen data
+        df_forwards = cache['forwards']
+        df_defensemen = cache['defensemen']
+        
+        if df_forwards is None or df_defensemen is None:
+            return jsonify({'error': 'Data not loaded'}), 500
+        
+        # Filter by year
+        df_year = pd.concat([
+            df_forwards[df_forwards['season'] == year],
+            df_defensemen[df_defensemen['season'] == year]
+        ])
+        
+        if df_year.empty:
+            return jsonify({'error': f'No data available for year {year}'}), 404
+        
+        # Get unique team abbreviations and sort them
+        teams = sorted(df_year['team'].dropna().unique().tolist())
+        
+        return jsonify({
+            'year': year,
+            'teams': teams
+        })
+        
+    except ValueError:
+        return jsonify({'error': 'year must be an integer'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/rosters', methods=['GET'])
+def get_rosters():
+    try:
+        year = request.args.get('year')
+        team = request.args.get('team')
+        position = request.args.get('position')
+        
+        # Validate parameters
+        if not year or not team or not position:
+            return jsonify({
+                'error': 'year, team, and position parameters are required'
+            }), 400
+        
+        year = int(year)
+        team = team.upper()
+        position = position.upper()
+        
+        if position not in ['F', 'D']:
+            return jsonify({
+                'error': "position must be 'F' (forwards) or 'D' (defensemen)"
+            }), 400
+        
+        # Load data if not already cached
+        if not cache['loaded']:
+            forwards_cached, defensemen_cached = cache_manager.load_processed_data()
+            if forwards_cached is not None and defensemen_cached is not None:
+                cache['forwards'] = forwards_cached
+                cache['defensemen'] = defensemen_cached
+                cache['loaded'] = True
+            else:
+                forwards_hosted, defensemen_hosted = data_host.load_processed_data()
+                if forwards_hosted is not None and defensemen_hosted is not None:
+                    cache['forwards'] = forwards_hosted
+                    cache['defensemen'] = defensemen_hosted
+                    cache['loaded'] = True
+                else:
+                    return jsonify({
+                        'error': 'Data not available. Please ensure data files are hosted and DATA_HOST_URL is configured, or run the data processing script to generate local cache files.'
+                    }), 503
+        
+        # Select appropriate dataset based on position
+        df = cache['forwards'] if position == 'F' else cache['defensemen']
+        
+        if df is None:
+            return jsonify({'error': 'Data not loaded'}), 500
+        
+        # Filter by year and team
+        df_filtered = df[(df['season'] == year) & (df['team'] == team)]
+        
+        if df_filtered.empty:
+            return jsonify({
+                'error': f'No players found for year {year}, team {team}, position {position}'
+            }), 404
+        
+        # Filter by team for WAR percentile calculation (all players on team for that year)
+        df_team_year = df[(df['season'] == year) & (df['team'] == team)]
+        
+        # Build player list with WAR percentiles
+        players = []
+        if 'WAR' in df_team_year.columns:
+            war_values = df_team_year['WAR'].dropna()
+            
+            for _, player in df_filtered.iterrows():
+                player_war = player.get('WAR')
+                
+                # Calculate win share (WAR percentile within the team)
+                win_share = None
+                if pd.notna(player_war) and len(war_values) > 0:
+                    percentile = (war_values < player_war).sum() / len(war_values) * 100
+                    win_share = round(percentile, 1)
+                
+                players.append({
+                    'name': player.get('name'),
+                    'playerId': int(player.get('playerId')) if pd.notna(player.get('playerId')) else None,
+                    'winShare': win_share
+                })
+        else:
+            # If WAR column doesn't exist, return players without winShare
+            for _, player in df_filtered.iterrows():
+                players.append({
+                    'name': player.get('name'),
+                    'playerId': int(player.get('playerId')) if pd.notna(player.get('playerId')) else None,
+                    'winShare': None
+                })
+        
+        # Sort by winShare descending (highest first)
+        players.sort(key=lambda x: x['winShare'] if x['winShare'] is not None else -1, reverse=True)
+        
+        return jsonify({
+            'year': year,
+            'team': team,
+            'position': position,
+            'players': players
+        })
+        
+    except ValueError as e:
+        return jsonify({'error': 'year must be an integer'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     import os
     port = int(os.environ.get('PORT', 5001))
