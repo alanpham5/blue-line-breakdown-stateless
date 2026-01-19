@@ -7,6 +7,25 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
 from sklearn.decomposition import PCA
 
+def calculate_feature_weights(feature_columns):
+    feature_weights_dict = {}
+    for col in feature_columns:
+        col_str = str(col).lower()
+        if 'i_f_' in col_str or 'onice_f_' in col_str:
+            if 'goals' in col_str or 'assists' in col_str or 'points' in col_str or 'xgoals' in col_str:
+                feature_weights_dict[col] = 1.3
+            else:
+                feature_weights_dict[col] = 1.1
+        elif 'hits' in col_str or 'blocked' in col_str or 'takeaways' in col_str:
+            feature_weights_dict[col] = 1.2
+        elif 'onice_a_' in col_str or 'corsi' in col_str:
+            feature_weights_dict[col] = 1.1
+        elif 'height' in col_str or 'weight' in col_str or 'bmi' in col_str:
+            feature_weights_dict[col] = 1.0
+        else:
+            feature_weights_dict[col] = 1.0
+    return feature_weights_dict
+
 class SimilarityEngine:
     def __init__(self):
         self.normalizers = {
@@ -16,42 +35,51 @@ class SimilarityEngine:
         }
     
     def normalize_columns(self, df, method='minmax'):
-        exclude_cols = ["playerId", "name", "position", "season", "team"]
+        exclude_cols = {"playerId", "name", "position", "season", "team"}
+        war_columns = {
+            'EV_min', 'PP_min', 'PK_min', 'Off_GAR', 'Def_GAR', 
+            'PP_GAR', 'PK_GAR', 'Penalty_GAR', 'Faceoff_GAR', 
+            'Total_GAR', 'WAR'
+        }
+        exclude_cols.update(war_columns)
         df_normalized = df.copy()
-        cols_to_normalize = [col for col in df.columns if col not in exclude_cols]
+        cols_to_normalize = [col for col in df.columns if col not in exclude_cols and pd.api.types.is_numeric_dtype(df[col])]
         
-        for col in cols_to_normalize:
-            if pd.api.types.is_numeric_dtype(df_normalized[col]):
-                if method == 'minmax':
-                    scaler = MinMaxScaler()
-                elif method == 'standard':
-                    scaler = StandardScaler()
-                elif method == 'robust':
-                    scaler = RobustScaler()
-                else:
-                    scaler = MinMaxScaler()
-                df_normalized[col] = scaler.fit_transform(df_normalized[[col]])
+        if not cols_to_normalize:
+            return df_normalized
+        
+        if method == 'minmax':
+            scaler = MinMaxScaler()
+        elif method == 'standard':
+            scaler = StandardScaler()
+        elif method == 'robust':
+            scaler = RobustScaler()
+        else:
+            scaler = MinMaxScaler()
+        
+        df_normalized[cols_to_normalize] = scaler.fit_transform(df_normalized[cols_to_normalize])
         return df_normalized
     
     def pca_transform(self, df, n_components=35, feature_weights=None):
         nonnum_columns = ["playerId", "name", "position", "season", "team"]
+        war_columns = {
+            'EV_min', 'PP_min', 'PK_min', 'Off_GAR', 'Def_GAR', 
+            'PP_GAR', 'PK_GAR', 'Penalty_GAR', 'Faceoff_GAR', 
+            'Total_GAR', 'WAR'
+        }
+        exclude_cols = set(nonnum_columns) | war_columns
         numeric_columns = [col for col in df.columns 
-                          if col not in nonnum_columns 
+                          if col not in exclude_cols 
                           and pd.api.types.is_numeric_dtype(df[col])]
         
         df_nonnum = df[nonnum_columns]
         df_numeric = df[numeric_columns].copy()
         
-        df_numeric = df_numeric.replace([np.inf, -np.inf], np.nan)
-        df_numeric = df_numeric.fillna(0)
-        df_numeric = df_numeric.clip(lower=-1e6, upper=1e6)
+        df_numeric = df_numeric.replace([np.inf, -np.inf], np.nan).fillna(0).clip(lower=-1e6, upper=1e6)
         
         if feature_weights is not None:
             weights_array = np.array([feature_weights.get(col, 1.0) for col in numeric_columns])
-            df_numeric = df_numeric * weights_array
-            df_numeric = df_numeric.replace([np.inf, -np.inf], np.nan)
-            df_numeric = df_numeric.fillna(0)
-            df_numeric = df_numeric.clip(lower=-1e6, upper=1e6)
+            df_numeric = (df_numeric * weights_array).replace([np.inf, -np.inf], np.nan).fillna(0).clip(lower=-1e6, upper=1e6)
         
         variance_threshold = 1e-8
         variances = df_numeric.var()
@@ -61,24 +89,16 @@ class SimilarityEngine:
         if len(valid_columns) == 0:
             raise ValueError("No valid numeric columns with sufficient variance for PCA")
         
-        from sklearn.preprocessing import StandardScaler
-        with np.errstate(all='ignore'):
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                scaler = StandardScaler()
-                df_numeric_scaled = scaler.fit_transform(df_numeric)
-                df_numeric = pd.DataFrame(
-                    df_numeric_scaled,
-                    columns=df_numeric.columns,
-                    index=df_numeric.index
-                )
+        with np.errstate(all='ignore'), warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            scaler = StandardScaler()
+            df_numeric_scaled = scaler.fit_transform(df_numeric)
+            df_numeric = pd.DataFrame(df_numeric_scaled, columns=df_numeric.columns, index=df_numeric.index)
         
-        df_numeric = df_numeric.replace([np.inf, -np.inf], np.nan)
-        df_numeric = df_numeric.fillna(0)
-        df_numeric = df_numeric.clip(lower=-100, upper=100)
-        
-        df_numeric_values = df_numeric.values.astype(np.float64)
-        df_numeric_values = np.nan_to_num(df_numeric_values, nan=0.0, posinf=100.0, neginf=-100.0)
+        df_numeric_values = np.nan_to_num(
+            df_numeric.replace([np.inf, -np.inf], np.nan).fillna(0).clip(lower=-100, upper=100).values.astype(np.float64),
+            nan=0.0, posinf=100.0, neginf=-100.0
+        )
         df_numeric_values = np.clip(df_numeric_values, -100, 100)
         
         n_comp = min(n_components, len(valid_columns))
@@ -132,24 +152,7 @@ class SimilarityEngine:
         if use_pca:
             feature_columns_pre = [col for col in df_processed.columns 
                                   if col not in ["playerId", "name", "position", "season", "team"]]
-            
-            feature_weights_dict = {}
-            for col in feature_columns_pre:
-                col_str = str(col).lower()
-                if 'i_f_' in col_str or 'onice_f_' in col_str:
-                    if 'goals' in col_str or 'assists' in col_str or 'points' in col_str or 'xgoals' in col_str:
-                        feature_weights_dict[col] = 1.3
-                    else:
-                        feature_weights_dict[col] = 1.1
-                elif 'hits' in col_str or 'blocked' in col_str or 'takeaways' in col_str:
-                    feature_weights_dict[col] = 1.2
-                elif 'onice_a_' in col_str or 'corsi' in col_str:
-                    feature_weights_dict[col] = 1.1
-                elif 'height' in col_str or 'weight' in col_str or 'bmi' in col_str:
-                    feature_weights_dict[col] = 1.0
-                else:
-                    feature_weights_dict[col] = 1.0
-            
+            feature_weights_dict = calculate_feature_weights(feature_columns_pre)
             df_processed = self.pca_transform(df_processed, n_components=35, feature_weights=feature_weights_dict)
         
         player_df_full = df_processed[df_processed['season'] == season]
@@ -272,13 +275,10 @@ class SimilarityEngine:
         candidate_neighbors.append(player_self)
         
         for n in candidate_neighbors:
-            if n['playerId'] == player_id:
-                continue
-            season_diff = abs(n['season'] - season)
-            era_penalty = 30 - season_diff
-            n['similarity'] = n['similarity'] - era_penalty
-        
-        candidate_neighbors.sort(key=lambda x: x['similarity'], reverse=True)
+            if n['playerId'] != player_id:
+                season_diff = abs(n['season'] - season)
+                era_penalty = 30 - season_diff
+                n['similarity'] = n['similarity'] - era_penalty
         
         if len(candidate_neighbors) > 0:
             all_similarities = [n['similarity'] for n in candidate_neighbors]
@@ -289,18 +289,12 @@ class SimilarityEngine:
             if sim_range > 0:
                 target_max = 99.0
                 target_min = 50.0
-                target_range = target_max - target_min
-                
-                scale_factor = target_range / sim_range
+                scale_factor = (target_max - target_min) / sim_range
                 for n in candidate_neighbors:
-                    n['similarity'] = target_min + (n['similarity'] - min_sim) * scale_factor
-        
-        candidate_neighbors.sort(key=lambda x: x['similarity'], reverse=True)
-        
-        for n in candidate_neighbors:
-            n['similarity'] = round(n['similarity'], 1)
+                    n['similarity'] = round(target_min + (n['similarity'] - min_sim) * scale_factor, 1)
         
         candidate_neighbors = [n for n in candidate_neighbors if n['playerId'] != player_id]
+        candidate_neighbors.sort(key=lambda x: x['similarity'], reverse=True)
         
         neighbors = []
         season_counts = {}
@@ -317,12 +311,13 @@ class SimilarityEngine:
                     break
         
         if len(neighbors) < num_neighbors:
+            neighbors_set = {n['playerId'] for n in neighbors}
             for n in candidate_neighbors:
-                if n not in neighbors:
+                if n['playerId'] not in neighbors_set:
                     neighbors.append(n)
+                    neighbors_set.add(n['playerId'])
                     if len(neighbors) >= num_neighbors:
                         break
         
         neighbors.sort(key=lambda x: x['similarity'], reverse=True)
-        
         return neighbors

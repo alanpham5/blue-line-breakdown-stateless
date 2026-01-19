@@ -17,6 +17,11 @@ class DataProcessor:
         
         self.all_numeric_features = None
         self.nonnum_columns = ["playerId", "name", "position", "season"]
+        self.war_columns = [
+            'EV_min', 'PP_min', 'PK_min', 'Off_GAR', 'Def_GAR', 
+            'PP_GAR', 'PK_GAR', 'Penalty_GAR', 'Faceoff_GAR', 
+            'Total_GAR', 'WAR'
+        ]
         
         self.team_abbrev_cleanup = {
             'S.J': 'SJS',
@@ -76,13 +81,135 @@ class DataProcessor:
         df['bmi'] = df['weight'] / (df['height'] ** 2) * 703
         return df
     
+    def calculate_war(self, df):
+        # I did not create this formula. I used the internet and some AI to form it.
+        GOALS_PER_WIN = 4.5
+        
+        REP_XGF_EV = 1.079
+        REP_XGA_EV = 1.484
+        REP_XGF_PP = 0.949
+        REP_XGA_PK = 3.44
+        
+        df = df.copy()
+        
+        time_cols_map = {
+            'timeOnIce': 'timeOnIce',
+            'icetime': 'icetime',
+            'timeOnIceEV': 'timeOnIceEV',
+            'timeOnIcePP': 'timeOnIcePP',
+            'timeOnIcePK': 'timeOnIcePK'
+        }
+        
+        ev_min_col = None
+        pp_min_col = None
+        pk_min_col = None
+        
+        for key, col in time_cols_map.items():
+            if col in df.columns:
+                if key == 'timeOnIce' or key == 'icetime':
+                    if ev_min_col is None:
+                        ev_min_col = col
+                elif key == 'timeOnIceEV':
+                    ev_min_col = col
+                elif key == 'timeOnIcePP':
+                    pp_min_col = col
+                elif key == 'timeOnIcePK':
+                    pk_min_col = col
+        
+        if ev_min_col is None:
+            for c in self.war_columns:
+                if c not in df.columns:
+                    df[c] = 0.0
+            return df
+        
+        if ev_min_col == 'icetime':
+            df['EV_min'] = df[ev_min_col] / 60
+        else:
+            df['EV_min'] = df[ev_min_col]
+        
+        if pp_min_col:
+            if pp_min_col == 'icetime':
+                df['PP_min'] = df[pp_min_col] / 60
+            else:
+                df['PP_min'] = df[pp_min_col]
+        else:
+            df['PP_min'] = 0
+        
+        if pk_min_col:
+            if pk_min_col == 'icetime':
+                df['PK_min'] = df[pk_min_col] / 60
+            else:
+                df['PK_min'] = df[pk_min_col]
+        else:
+            df['PK_min'] = 0
+        
+        xgf_ev_cols = ['xGoalsForOnIceAdjusted', 'OnIce_F_xGoals', 'xGoalsForOnIce']
+        xga_ev_cols = ['xGoalsAgainstOnIceAdjusted', 'OnIce_A_xGoals', 'xGoalsAgainstOnIce']
+        xgf_pp_cols = ['xGoalsForOnIcePP', 'xGoalsForPP']
+        xga_pk_cols = ['xGoalsAgainstOnIcePK', 'xGoalsAgainstPK']
+        
+        xgf_ev_col = next((col for col in xgf_ev_cols if col in df.columns), None)
+        xga_ev_col = next((col for col in xga_ev_cols if col in df.columns), None)
+        xgf_pp_col = next((col for col in xgf_pp_cols if col in df.columns), None)
+        xga_pk_col = next((col for col in xga_pk_cols if col in df.columns), None)
+        
+        if xgf_ev_col:
+            df['Off_GAR'] = ((df[xgf_ev_col] - REP_XGF_EV) * df['EV_min'] / 60).fillna(0)
+        else:
+            df['Off_GAR'] = 0
+        
+        if xga_ev_col:
+            df['Def_GAR'] = ((REP_XGA_EV - df[xga_ev_col]) * df['EV_min'] / 60).fillna(0)
+        else:
+            df['Def_GAR'] = 0
+        
+        if xgf_pp_col and pp_min_col:
+            df['PP_GAR'] = ((df[xgf_pp_col] - REP_XGF_PP) * df['PP_min'] / 60).fillna(0)
+        else:
+            df['PP_GAR'] = 0
+        
+        if xga_pk_col and pk_min_col:
+            df['PK_GAR'] = ((REP_XGA_PK - df[xga_pk_col]) * df['PK_min'] / 60).fillna(0)
+        else:
+            df['PK_GAR'] = 0
+        
+        penalty_drawn_cols = ['penaltiesDrawn', 'penaltiesDrawnEV']
+        penalty_taken_cols = ['penaltiesTaken', 'penaltiesTakenEV']
+        
+        penalty_drawn_col = next((col for col in penalty_drawn_cols if col in df.columns), None)
+        penalty_taken_col = next((col for col in penalty_taken_cols if col in df.columns), None)
+        
+        if penalty_drawn_col and penalty_taken_col:
+            df['Penalty_GAR'] = ((df[penalty_drawn_col] - df[penalty_taken_col]) * 0.2).fillna(0)
+        else:
+            df['Penalty_GAR'] = 0
+        
+        faceoff_won_cols = ['faceOffsWon', 'faceoffsWon']
+        faceoff_expected_cols = ['expectedFaceOffsWon', 'expectedFaceoffsWon']
+        
+        faceoff_won_col = next((col for col in faceoff_won_cols if col in df.columns), None)
+        faceoff_expected_col = next((col for col in faceoff_expected_cols if col in df.columns), None)
+        
+        if faceoff_won_col and faceoff_expected_col:
+            df['Faceoff_GAR'] = ((df[faceoff_won_col] - df[faceoff_expected_col]) * 0.01).fillna(0)
+        else:
+            df['Faceoff_GAR'] = 0
+        
+        df['Total_GAR'] = (
+            df['Off_GAR'] + df['Def_GAR'] + df['PP_GAR'] + 
+            df['PK_GAR'] + df['Penalty_GAR'] + df['Faceoff_GAR']
+        )
+        
+        df['WAR'] = df['Total_GAR'] / GOALS_PER_WIN
+        
+        return df
+    
     def clean_team_abbreviations(self, df):
         if 'team' not in df.columns:
             return df
         
         df = df.copy()
-        df['team'] = df['team'].astype(str).replace(self.team_abbrev_cleanup)
-        df['team'] = df['team'].replace('nan', np.nan)
+        df['team'] = df['team'].astype(str).replace(self.team_abbrev_cleanup).replace('nan', np.nan)
         return df
     
     def scale_stats_per_60_min(self, df):
@@ -96,6 +223,7 @@ class DataProcessor:
                        "icetime_hours"]
         
         exclude_cols.append('team')
+        exclude_cols.extend(self.war_columns)
         
         stats_columns = [col for col in df.columns 
                         if col not in exclude_cols 
@@ -176,4 +304,5 @@ class DataProcessor:
                 all_data_numeric.reset_index(drop=True)
             ], axis=1)
         all_data = self.add_bmi(all_data)
+        all_data = self.calculate_war(all_data)
         return all_data
