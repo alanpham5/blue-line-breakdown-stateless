@@ -115,13 +115,14 @@ def determine_archetypes(player_row, df, position):
         blocked_p75 = safe_quantile(df, 'shotsBlockedByPlayer', 0.75)
         goals_against_p75 = safe_quantile(df, 'OnIce_A_goals', 0.75, float('inf'))
         corsiPercentage_p75 = safe_quantile(df, 'onIce_corsiPercentage', 0.75)
+        corsiPercentage_p40 = safe_quantile(df, 'onIce_corsiPercentage', 0.40)
         penalty_minutes_p50 = safe_quantile(df, 'penaltyMinutes', 0.50)
         
         if shot_attempts >= shot_attempts_p75 and goals >= goals_p75:
             archetypes.append('Point Shooter')
         
-        if points >= points_p75 and (total_assists >= assists_p75 or goals >= goals_p75):
-            archetypes.append('Offensive Puck-Mover')
+        if points >= points_p75 and (total_assists >= assists_p75):
+            archetypes.append('Quarterback')
         
         if points >= points_p75 and goals_against <= goals_against_p75 and corsiPercentage >= corsiPercentage_p75:
             archetypes.append('Two-Way')
@@ -131,6 +132,9 @@ def determine_archetypes(player_row, df, position):
         
         if blocked_shots >= blocked_p75:
             archetypes.append('Shot Blocker')
+        
+        if blocked_shots >= blocked_p75 and corsiPercentage <= corsiPercentage_p40:
+            archetypes.append('Stay-at-Home')
     
     return archetypes
 
