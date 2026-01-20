@@ -4,6 +4,7 @@ import sys
 import os
 import threading
 from dotenv import load_dotenv
+import numpy as np
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
@@ -579,35 +580,52 @@ def get_rosters():
         
         # Build player list with WAR percentiles
         players = []
+        players = []
+
         if 'WAR' in df_team_year.columns:
-            war_values = df_team_year['WAR'].dropna()
-            
-            for _, player in df_filtered.iterrows():
-                player_war = player.get('WAR')
-                
-                # Calculate win share (WAR percentile within the team)
-                win_share = None
-                if pd.notna(player_war) and len(war_values) > 0:
-                    percentile = (war_values < player_war).sum() / len(war_values) * 100
-                    win_share = round(percentile, 1)
-                
-                players.append({
-                    'name': player.get('name'),
-                    'playerId': int(player.get('playerId')) if pd.notna(player.get('playerId')) else None,
-                    'winShare': win_share
-                })
+            # Clean WAR values
+            df = df_filtered.copy()
+            df['WAR'] = df['WAR'].fillna(0)
+
+            total_abs_war = df['WAR'].abs().sum()
+
+            k = 3   # aggressiveness
+            p = 2   # extremeness
+
+            x = k * df['WAR'] / (total_abs_war + 1e-6)
+
+
+            if total_abs_war > 0:
+                df['winShare'] = (
+                    99
+                    * np.sign(x)
+                    * np.abs(np.tanh(x)) ** p
+                ).round(1)
+
+            else:
+                df['winShare'] = 0.0
+
+            players = [
+                {
+                    'name': row['name'],
+                    'playerId': int(row['playerId']) if pd.notna(row['playerId']) else None,
+                    'winShare': row['winShare']
+                }
+                for _, row in df.iterrows()
+            ]
+
         else:
-            # If WAR column doesn't exist, return players without winShare
-            for _, player in df_filtered.iterrows():
-                players.append({
+            players = [
+                {
                     'name': player.get('name'),
                     'playerId': int(player.get('playerId')) if pd.notna(player.get('playerId')) else None,
                     'winShare': None
-                })
-        
-        # Sort by winShare descending (highest first)
-        players.sort(key=lambda x: x['winShare'] if x['winShare'] is not None else -1, reverse=True)
-        
+                }
+                for _, player in df_filtered.iterrows()
+            ]
+
+        players.sort(key=lambda x: x['winShare'] if x['winShare'] is not None else -np.inf, reverse=True)
+
         return jsonify({
             'year': year,
             'team': team,
