@@ -285,6 +285,7 @@ def search():
         data = request.json
         player_name = data['playerName']
         season = int(data['season'])
+        age = int(data.get('age', 0))
         position = data['position']
         num_neighbors = data.get('numNeighbors', 9)
         filter_season = data.get('filterSeason')
@@ -327,7 +328,6 @@ def search():
         
         feature_weights_dict = calculate_feature_weights(feature_columns_pre)
         df_transformed = similarity_engine.pca_transform(df_normalized, n_components=35, feature_weights=feature_weights_dict)
-        percentiles = similarity_engine.calculate_percentiles(player_row, df)
         
         similar = similarity_engine.find_similar_players(
             df_transformed, actual_player_name, season, 
@@ -338,28 +338,83 @@ def search():
             use_pca=False
         )
         
-        allowed_offensive_stats = {
-            'I_F_xGoals', 'I_F_goals', 'I_F_primaryAssists', 'I_F_secondaryAssists',
-            'I_F_shotsOnGoal', 'I_F_shotAttempts', 'I_F_points', 'I_F_giveaways',
-            'OnIce_F_xGoals', 'OnIce_F_goals'
-        }
-        
-        allowed_defensive_stats = {
-            'OnIce_A_xGoals', 'OnIce_A_goals', 'onIce_corsiPercentage',
-            'I_F_hits', 'I_F_takeaways', 'shotsBlockedByPlayer'
-        }
-        
-        offensive_stats = {
-            k: round(100 - v, 1) if 'giveaways' in k.lower() else v
-            for k, v in percentiles.items()
-            if k in allowed_offensive_stats
-        }
-        
-        defensive_stats = {
-            k: round(100 - v, 1) if 'OnIce_A_goals' in k or 'OnIce_A_xGoals' in k else v
-            for k, v in percentiles.items()
-            if k in allowed_defensive_stats
-        }
+        # Define metric lists
+        OFF_METRICS = [
+            "SHOT_TAL",
+            "PLAY_DRV",
+            "SHOT_FREQ",
+            "PASS_FREQ",
+            "PP_USAGE",
+            "ONICE_IMP",
+        ]
+
+        DEF_METRICS = [
+            "POS_CTRL",
+            "BLK",
+            "HIT",
+            "TAKE",
+            "CH_SUP",
+            "GOAL_PREV",
+        ]
+
+        # Compute metrics for df_season
+        df_season = df[df['season'] == season].copy()
+        time_col = 'I_F_timeOnIce' if 'I_F_timeOnIce' in df_season.columns else 'timeOnIce'
+        if time_col not in df_season.columns:
+            df_season[time_col] = 1  # fallback
+        df_season[time_col] = df_season[time_col].replace(0, 1)  # avoid div0
+
+        # Offensive metric formulas
+        df_season['SHOT_TAL'] = ((df_season.get('I_F_goals', 0) - df_season.get('I_F_xGoals', 0)) / df_season[time_col] * 60).fillna(0)
+        df_season['PLAY_DRV'] = (df_season.get('I_F_primaryAssists', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['SHOT_FREQ'] = (df_season.get('I_F_shotsOnGoal', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['PASS_FREQ'] = (df_season.get('I_F_secondaryAssists', 0) / df_season[time_col] * 60).fillna(0)  # assuming shotAssists is secondaryAssists
+        df_season['PP_USAGE'] = (df_season.get('timeOnIcePP', 0) / (df_season.get('timeOnIcePP', 0) + df_season.get('timeOnIcePK', 0) + df_season.get('timeOnIceEV', 0))).fillna(0)
+        df_season['ONICE_IMP'] = (df_season.get('OnIce_F_xGoals', 0) / df_season[time_col] * 60).fillna(0)
+
+        # Defensive metric formulas
+        df_season['POS_CTRL'] = df_season.get('onIce_corsiPercentage', 0).fillna(0)
+        df_season['BLK'] = (df_season.get('shotsBlockedByPlayer', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['HIT'] = (df_season.get('I_F_hits', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['TAKE'] = (df_season.get('I_F_takeaways', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['CH_SUP'] = (df_season.get('OnIce_A_xGoals', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['GOAL_PREV'] = (df_season.get('OnIce_A_goals', 0) / df_season[time_col] * 60).fillna(0)
+
+        # Compute player values
+        player_time = player_row.get(time_col, 1)
+        if player_time == 0:
+            player_time = 1
+        player_SHOT_TAL = ((player_row.get('I_F_goals', 0) - player_row.get('I_F_xGoals', 0)) / player_time * 60)
+        player_PLAY_DRV = (player_row.get('I_F_primaryAssists', 0) / player_time * 60)
+        player_SHOT_FREQ = (player_row.get('I_F_shotsOnGoal', 0) / player_time * 60)
+        player_PASS_FREQ = (player_row.get('I_F_secondaryAssists', 0) / player_time * 60)
+        player_PP_USAGE = (player_row.get('timeOnIcePP', 0) / (player_row.get('timeOnIcePP', 0) + player_row.get('timeOnIcePK', 0) + player_row.get('timeOnIceEV', 0)))
+        player_ONICE_IMP = (player_row.get('OnIce_F_xGoals', 0) / player_time * 60)
+
+        player_POS_CTRL = player_row.get('onIce_corsiPercentage', 0)
+        player_BLK = (player_row.get('shotsBlockedByPlayer', 0) / player_time * 60)
+        player_HIT = (player_row.get('I_F_hits', 0) / player_time * 60)
+        player_TAKE = (player_row.get('I_F_takeaways', 0) / player_time * 60)
+        player_CH_SUP = (player_row.get('OnIce_A_xGoals', 0) / player_time * 60)
+        player_GOAL_PREV = (player_row.get('OnIce_A_goals', 0) / player_time * 60)
+
+        # Compute percentiles
+        offensive_stats = {}
+        for metric in OFF_METRICS:
+            player_val = locals()[f'player_{metric}']
+            percentile = (df_season[metric] < player_val).sum() / len(df_season) * 100
+            offensive_stats[metric] = round(percentile, 1)
+
+        defensive_stats = {}
+        for metric in DEF_METRICS:
+            player_val = locals()[f'player_{metric}']
+            percentile = (df_season[metric] < player_val).sum() / len(df_season) * 100
+            defensive_stats[metric] = round(percentile, 1)
+
+        # Invert percentiles for metrics where higher is worse
+        for metric in ['CH_SUP', 'GOAL_PREV']:
+            if metric in defensive_stats:
+                defensive_stats[metric] = round(100 - defensive_stats[metric], 1)
         
         biometrics = {}
         if 'height' in player_row and pd.notna(player_row['height']):
@@ -390,6 +445,7 @@ def search():
                 'name': actual_player_name,
                 'season': season,
                 'position': position,
+                'age': int(player_row['age']) if 'age' in player_row and pd.notna(player_row['age']) else None,
                 'playerId': int(player_row['playerId']),
                 'team': team,
                 'archetypes': archetypes,

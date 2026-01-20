@@ -220,7 +220,7 @@ class DataProcessor:
         
         exclude_cols = ["playerId", "name", "season", 'height', 'weight', 
                        "age", "bmi", "position", "icetime", "onIce_corsiPercentage",
-                       "icetime_hours"]
+                       "icetime_hours", "timeOnIcePP", "timeOnIcePK", "timeOnIceEV"]
         
         exclude_cols.append('team')
         exclude_cols.extend(self.war_columns)
@@ -243,11 +243,26 @@ class DataProcessor:
     
     def process_data(self, df, player_bio):
         merged_data = self.merge_player_data(df, player_bio)
-        all_data = merged_data[merged_data['situation'] == 'all']
-        
+        all_data = merged_data[merged_data['situation'] == 'all'].copy()
+
+        # Calculate timeOnIce for different situations
+        pp_data = merged_data[merged_data['situation'] == '5on4'][['playerId', 'season', 'icetime']].rename(columns={'icetime': 'timeOnIcePP'})
+        all_data = all_data.merge(pp_data, on=['playerId', 'season'], how='left')
+
+        pk_data = merged_data[merged_data['situation'] == '4on5'][['playerId', 'season', 'icetime']].rename(columns={'icetime': 'timeOnIcePK'})
+        all_data = all_data.merge(pk_data, on=['playerId', 'season'], how='left')
+
+        ev_data = merged_data[merged_data['situation'] == '5on5'][['playerId', 'season', 'icetime']].rename(columns={'icetime': 'timeOnIceEV'})
+        all_data = all_data.merge(ev_data, on=['playerId', 'season'], how='left')
+
+        # Fill missing times with 0
+        all_data['timeOnIcePP'] = all_data['timeOnIcePP'].fillna(0)
+        all_data['timeOnIcePK'] = all_data['timeOnIcePK'].fillna(0)
+        all_data['timeOnIceEV'] = all_data['timeOnIceEV'].fillna(0)
+
         if 'icetime' in all_data.columns:
             all_data = all_data[all_data['icetime'] >= all_data['icetime'].quantile(0.20)]
-        
+
         all_data["height"] = all_data["height"].apply(self.convert_height_to_inches)
         all_data = self.clean_team_abbreviations(all_data)
         
