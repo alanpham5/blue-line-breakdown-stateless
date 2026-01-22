@@ -369,21 +369,22 @@ def search():
             df_season[time_col] = 1  # fallback
         df_season[time_col] = df_season[time_col].replace(0, 1)  # avoid div0
 
+        
         # Offensive metric formulas
         df_season['SHOT_TAL'] = ((df_season.get('I_F_goals_total', 0) - df_season.get('I_F_xGoals_total', 0)) / df_season[time_col] * 60).fillna(0)
         df_season['PLAY_DRV'] = (df_season.get('I_F_primaryAssists_total', 0) / df_season[time_col] * 60).fillna(0)
-        df_season['SHOT_FREQ'] = (df_season.get('I_F_shotsOnGoal_total', 0) / df_season[time_col] * 60).fillna(0)
-        df_season['PASS_FREQ'] = (df_season.get('I_F_secondaryAssists_total', 0) / df_season[time_col] * 60).fillna(0)  # assuming shotAssists is secondaryAssists
+        df_season['SHOT_FREQ'] = (df_season.get('I_F_shotsOnGoal', 0) / df_season.get('OnIce_F_shotAttempts', 1)).fillna(0)
+        df_season['PASS_FREQ'] = ((df_season.get('I_F_primaryAssists_total', 0) + df_season.get('I_F_secondaryAssists_total', 0)) / df_season.get('OnIce_F_shotAttempts', 1)).fillna(0)
         df_season['PP_USAGE'] = (df_season.get('timeOnIcePP', 0) / (df_season.get('timeOnIcePP', 0) + df_season.get('timeOnIcePK', 0) + df_season.get('timeOnIceEV', 0))).fillna(0)
-        df_season['ONICE_IMP'] = (df_season.get('OnIce_F_xGoals_total', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['ONICE_IMP'] = (df_season.get('OnIce_F_xGoals', 0) / df_season[time_col] * 60).fillna(0)
 
         # Defensive metric formulas
         df_season['POS_CTRL'] = df_season.get('onIce_corsiPercentage', 0).fillna(0)
-        df_season['BLK'] = (df_season.get('shotsBlockedByPlayer_total', 0) / df_season[time_col] * 60).fillna(0)
-        df_season['HIT'] = (df_season.get('I_F_hits_total', 0) / df_season[time_col] * 60).fillna(0)
-        df_season['TAKE'] = (df_season.get('I_F_takeaways_total', 0) / df_season[time_col] * 60).fillna(0)
-        df_season['CH_SUP'] = (df_season.get('OnIce_A_xGoals_total', 0) / df_season[time_col] * 60).fillna(0)
-        df_season['GOAL_PREV'] = (df_season.get('OnIce_A_goals_total', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['BLK'] = (df_season.get('shotsBlockedByPlayer', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['HIT'] = (df_season.get('I_F_hits', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['TAKE'] = (df_season.get('I_F_takeaways', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['CH_SUP'] = (df_season.get('OnIce_A_xGoals', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['GOAL_PREV'] = (df_season.get('OnIce_A_goals', 0) / df_season[time_col] * 60).fillna(0)
 
         # Compute player values
         player_time = player_row.get(time_col, 1)
@@ -391,17 +392,23 @@ def search():
             player_time = 1
         player_SHOT_TAL = ((player_row.get('I_F_goals_total', 0) - player_row.get('I_F_xGoals_total', 0)) / player_time * 60)
         player_PLAY_DRV = (player_row.get('I_F_primaryAssists_total', 0) / player_time * 60)
-        player_SHOT_FREQ = (player_row.get('I_F_shotsOnGoal_total', 0) / player_time * 60)
-        player_PASS_FREQ = (player_row.get('I_F_secondaryAssists_total', 0) / player_time * 60)
+        # Compute SHOT_FREQ as ratio: shotsOnGoal / OnIce_F_shotAttempts
+        shot_attempts = player_row.get('OnIce_F_shotAttempts', 1)
+        player_SHOT_FREQ = player_row.get('I_F_shotsOnGoal', 0) / shot_attempts
+
+        # Compute PASS_FREQ as ratio: (primaryAssists + secondaryAssists) / OnIce_F_shotAttempts
+        player_PASS_FREQ = (player_row.get('I_F_primaryAssists_total', 0) +
+                           player_row.get('I_F_secondaryAssists_total', 0)) / shot_attempts
+
         player_PP_USAGE = (player_row.get('timeOnIcePP', 0) / (player_row.get('timeOnIcePP', 0) + player_row.get('timeOnIcePK', 0) + player_row.get('timeOnIceEV', 0)))
-        player_ONICE_IMP = (player_row.get('OnIce_F_xGoals_total', 0) / player_time * 60)
+        player_ONICE_IMP = (player_row.get('OnIce_F_xGoals', 0) / player_time * 60)
 
         player_POS_CTRL = player_row.get('onIce_corsiPercentage', 0)
-        player_BLK = (player_row.get('shotsBlockedByPlayer_total', 0) / player_time * 60)
-        player_HIT = (player_row.get('I_F_hits_total', 0) / player_time * 60)
-        player_TAKE = (player_row.get('I_F_takeaways_total', 0) / player_time * 60)
-        player_CH_SUP = (player_row.get('OnIce_A_xGoals_total', 0) / player_time * 60)
-        player_GOAL_PREV = (player_row.get('OnIce_A_goals_total', 0) / player_time * 60)
+        player_BLK = (player_row.get('shotsBlockedByPlayer', 0) / player_time * 60)
+        player_HIT = (player_row.get('I_F_hits', 0) / player_time * 60)
+        player_TAKE = (player_row.get('I_F_takeaways', 0) / player_time * 60)
+        player_CH_SUP = (player_row.get('OnIce_A_xGoals', 0) / player_time * 60)
+        player_GOAL_PREV = (player_row.get('OnIce_A_goals', 0) / player_time * 60)
 
         # Compute percentiles
         offensive_stats = {}

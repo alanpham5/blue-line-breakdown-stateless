@@ -11,7 +11,7 @@ class DataProcessor:
             "I_F_xGoals", "I_F_goals", "I_F_primaryAssists", "I_F_secondaryAssists",
             "I_F_shotsOnGoal", "I_F_shotAttempts", "I_F_points", "I_F_hits",
             "I_F_takeaways", "I_F_giveaways", "shotsBlockedByPlayer",
-            "OnIce_F_xGoals", "OnIce_F_goals",
+            "OnIce_F_xGoals", "OnIce_F_goals", "OnIce_F_shotAttempts",
             "OnIce_A_xGoals", "OnIce_A_goals", "onIce_corsiPercentage"
         ]
         
@@ -222,13 +222,6 @@ class DataProcessor:
             - replacement_level_war
             + 0.15 * (df['gameScore_clean'] - replacement_level_gs)
         )
-
-        debug_ids = [8475181, 8479983, 8484801, 8477492] 
-        mask = df['playerId'].isin(debug_ids) & (df['season'] == 2025) 
-        if mask.any(): 
-            debug_dict = ( df.loc[ mask, ['playerId', 'name', 'season', 'Off_GAR', 'Def_GAR', 'PP_GAR', 'PK_GAR', 'Penalty_GAR', 'Faceoff_GAR', 'Total_GAR', 'WAR_scaled', 'gameScore_clean', 'WAR'] ] .to_dict(orient='records') ) 
-            print(debug_dict) 
-        
 
         df = df.drop(
             columns=[
