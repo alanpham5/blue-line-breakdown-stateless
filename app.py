@@ -370,38 +370,38 @@ def search():
         df_season[time_col] = df_season[time_col].replace(0, 1)  # avoid div0
 
         # Offensive metric formulas
-        df_season['SHOT_TAL'] = ((df_season.get('I_F_goals', 0) - df_season.get('I_F_xGoals', 0)) / df_season[time_col] * 60).fillna(0)
-        df_season['PLAY_DRV'] = (df_season.get('I_F_primaryAssists', 0) / df_season[time_col] * 60).fillna(0)
-        df_season['SHOT_FREQ'] = (df_season.get('I_F_shotsOnGoal', 0) / df_season[time_col] * 60).fillna(0)
-        df_season['PASS_FREQ'] = (df_season.get('I_F_secondaryAssists', 0) / df_season[time_col] * 60).fillna(0)  # assuming shotAssists is secondaryAssists
+        df_season['SHOT_TAL'] = ((df_season.get('I_F_goals_total', 0) - df_season.get('I_F_xGoals_total', 0)) / df_season[time_col] * 60).fillna(0)
+        df_season['PLAY_DRV'] = (df_season.get('I_F_primaryAssists_total', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['SHOT_FREQ'] = (df_season.get('I_F_shotsOnGoal_total', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['PASS_FREQ'] = (df_season.get('I_F_secondaryAssists_total', 0) / df_season[time_col] * 60).fillna(0)  # assuming shotAssists is secondaryAssists
         df_season['PP_USAGE'] = (df_season.get('timeOnIcePP', 0) / (df_season.get('timeOnIcePP', 0) + df_season.get('timeOnIcePK', 0) + df_season.get('timeOnIceEV', 0))).fillna(0)
-        df_season['ONICE_IMP'] = (df_season.get('OnIce_F_xGoals', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['ONICE_IMP'] = (df_season.get('OnIce_F_xGoals_total', 0) / df_season[time_col] * 60).fillna(0)
 
         # Defensive metric formulas
         df_season['POS_CTRL'] = df_season.get('onIce_corsiPercentage', 0).fillna(0)
-        df_season['BLK'] = (df_season.get('shotsBlockedByPlayer', 0) / df_season[time_col] * 60).fillna(0)
-        df_season['HIT'] = (df_season.get('I_F_hits', 0) / df_season[time_col] * 60).fillna(0)
-        df_season['TAKE'] = (df_season.get('I_F_takeaways', 0) / df_season[time_col] * 60).fillna(0)
-        df_season['CH_SUP'] = (df_season.get('OnIce_A_xGoals', 0) / df_season[time_col] * 60).fillna(0)
-        df_season['GOAL_PREV'] = (df_season.get('OnIce_A_goals', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['BLK'] = (df_season.get('shotsBlockedByPlayer_total', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['HIT'] = (df_season.get('I_F_hits_total', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['TAKE'] = (df_season.get('I_F_takeaways_total', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['CH_SUP'] = (df_season.get('OnIce_A_xGoals_total', 0) / df_season[time_col] * 60).fillna(0)
+        df_season['GOAL_PREV'] = (df_season.get('OnIce_A_goals_total', 0) / df_season[time_col] * 60).fillna(0)
 
         # Compute player values
         player_time = player_row.get(time_col, 1)
         if player_time == 0:
             player_time = 1
-        player_SHOT_TAL = ((player_row.get('I_F_goals', 0) - player_row.get('I_F_xGoals', 0)) / player_time * 60)
-        player_PLAY_DRV = (player_row.get('I_F_primaryAssists', 0) / player_time * 60)
-        player_SHOT_FREQ = (player_row.get('I_F_shotsOnGoal', 0) / player_time * 60)
-        player_PASS_FREQ = (player_row.get('I_F_secondaryAssists', 0) / player_time * 60)
+        player_SHOT_TAL = ((player_row.get('I_F_goals_total', 0) - player_row.get('I_F_xGoals_total', 0)) / player_time * 60)
+        player_PLAY_DRV = (player_row.get('I_F_primaryAssists_total', 0) / player_time * 60)
+        player_SHOT_FREQ = (player_row.get('I_F_shotsOnGoal_total', 0) / player_time * 60)
+        player_PASS_FREQ = (player_row.get('I_F_secondaryAssists_total', 0) / player_time * 60)
         player_PP_USAGE = (player_row.get('timeOnIcePP', 0) / (player_row.get('timeOnIcePP', 0) + player_row.get('timeOnIcePK', 0) + player_row.get('timeOnIceEV', 0)))
-        player_ONICE_IMP = (player_row.get('OnIce_F_xGoals', 0) / player_time * 60)
+        player_ONICE_IMP = (player_row.get('OnIce_F_xGoals_total', 0) / player_time * 60)
 
         player_POS_CTRL = player_row.get('onIce_corsiPercentage', 0)
-        player_BLK = (player_row.get('shotsBlockedByPlayer', 0) / player_time * 60)
-        player_HIT = (player_row.get('I_F_hits', 0) / player_time * 60)
-        player_TAKE = (player_row.get('I_F_takeaways', 0) / player_time * 60)
-        player_CH_SUP = (player_row.get('OnIce_A_xGoals', 0) / player_time * 60)
-        player_GOAL_PREV = (player_row.get('OnIce_A_goals', 0) / player_time * 60)
+        player_BLK = (player_row.get('shotsBlockedByPlayer_total', 0) / player_time * 60)
+        player_HIT = (player_row.get('I_F_hits_total', 0) / player_time * 60)
+        player_TAKE = (player_row.get('I_F_takeaways_total', 0) / player_time * 60)
+        player_CH_SUP = (player_row.get('OnIce_A_xGoals_total', 0) / player_time * 60)
+        player_GOAL_PREV = (player_row.get('OnIce_A_goals_total', 0) / player_time * 60)
 
         # Compute percentiles
         offensive_stats = {}
@@ -445,6 +445,43 @@ def search():
                     player_war = float(player_row['WAR'])
                     war_percentile = round((war_values < player_war).sum() / len(war_values) * 100, 1)
         
+        # Calculate stats from preserved total columns
+        # Try to get from preserved _total columns first, then fallback to regular columns
+        games_played = safe_get(player_row, 'games_played_total', safe_get(player_row, 'games_total', 
+                        safe_get(player_row, 'GP_total', safe_get(player_row, 'gamesPlayed', 
+                        safe_get(player_row, 'games', safe_get(player_row, 'GP', 0))))))
+        
+        goals = safe_get(player_row, 'I_F_goals_total', safe_get(player_row, 'I_F_goals', 0))
+        primary_assists = safe_get(player_row, 'I_F_primaryAssists_total', safe_get(player_row, 'I_F_primaryAssists', 0))
+        secondary_assists = safe_get(player_row, 'I_F_secondaryAssists_total', safe_get(player_row, 'I_F_secondaryAssists', 0))
+        points = safe_get(player_row, 'I_F_points_total', safe_get(player_row, 'I_F_points', 0))
+        # Try pim first (moneypuck column name), then penaltyMinutes
+        penalty_minutes = safe_get(player_row, 'penalityMinutes_total', safe_get(player_row, 'penalityMinutes', 0))
+        
+
+        
+        total_assists = points - goals
+
+        # If games_played is 0, estimate from icetime
+        if games_played == 0:
+            time_pp = safe_get(player_row, 'timeOnIcePP', 0)
+            time_pk = safe_get(player_row, 'timeOnIcePK', 0)
+            time_ev = safe_get(player_row, 'timeOnIceEV', 0)
+            total_icetime_seconds = time_pp + time_pk + time_ev
+            if total_icetime_seconds > 0:
+                icetime_minutes = total_icetime_seconds / 60.0
+                games_played = max(1, int(icetime_minutes / 15.0))
+            else:
+                games_played = 1
+        
+        stats = {
+            'gamesPlayed': int(games_played),
+            'goals': int(round(goals)) if goals > 0 else 0,
+            'assists': int(round(total_assists)) if total_assists > 0 else 0,
+            'points': int(round(points)) if points > 0 else 0,
+            'penaltyMinutes': int(round(penalty_minutes)) if penalty_minutes > 0 else 0
+        }
+        
         result = {
             'player': {
                 'name': actual_player_name,
@@ -457,6 +494,7 @@ def search():
                 'warPercentile': war_percentile
             },
             'biometrics': biometrics,
+            'stats': stats,
             'percentiles': {
                 'offensive': offensive_stats,
                 'defensive': defensive_stats
@@ -584,22 +622,23 @@ def get_rosters():
         
         # Build player list with WAR percentiles
         players = []
-        players = []
 
         if 'WAR' in df_team_year.columns:
-            # Clean WAR values
+            # Clean WAR values (WAR is now normalized to -100 to 100 range and includes gameScore)
             df = df_filtered.copy()
             df['WAR'] = df['WAR'].fillna(0)
 
             total_abs_war = df['WAR'].abs().sum()
 
-            k = 3   # aggressiveness
-            p = 2   # extremeness
-
-            x = k * df['WAR'] / (total_abs_war + 1e-6)
-
+            k = 2   # aggressiveness
+            p = 1.5  # extremeness
+            
+            # Subtract threshold from WAR to shift the zero point
+            war_adjusted = (df['WAR'])*2
+            x = k * war_adjusted / (total_abs_war + 1e-6)
 
             if total_abs_war > 0:
+                # Calculate winShare based on normalized WAR values
                 df['winShare'] = (
                     99
                     * np.sign(x)

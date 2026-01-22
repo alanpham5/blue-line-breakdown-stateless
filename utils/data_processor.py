@@ -84,14 +84,19 @@ class DataProcessor:
     def calculate_war(self, df):
         # I did not create this formula. I used the internet and some AI to form it.
         GOALS_PER_WIN = 4.5
-        
-        REP_XGF_EV = 1.079
-        REP_XGA_EV = 1.484
-        REP_XGF_PP = 0.949
-        REP_XGA_PK = 3.44
-        
+
+        REP_XGF_EV = 2.3
+        REP_XGA_EV = 2.8
+        REP_XGF_PP = 3.44
+        REP_XGA_PK = 5.0
+
+        EV_OFF_WEIGHT = 1.25
+        EV_DEF_WEIGHT = 1.35
+        PP_OFF_WEIGHT = 0.7
+        PK_DEF_WEIGHT = 0.6
+
         df = df.copy()
-        
+
         time_cols_map = {
             'timeOnIce': 'timeOnIce',
             'icetime': 'icetime',
@@ -99,14 +104,14 @@ class DataProcessor:
             'timeOnIcePP': 'timeOnIcePP',
             'timeOnIcePK': 'timeOnIcePK'
         }
-        
+
         ev_min_col = None
         pp_min_col = None
         pk_min_col = None
-        
+
         for key, col in time_cols_map.items():
             if col in df.columns:
-                if key == 'timeOnIce' or key == 'icetime':
+                if key in ['timeOnIce', 'icetime']:
                     if ev_min_col is None:
                         ev_min_col = col
                 elif key == 'timeOnIceEV':
@@ -115,95 +120,132 @@ class DataProcessor:
                     pp_min_col = col
                 elif key == 'timeOnIcePK':
                     pk_min_col = col
-        
+
         if ev_min_col is None:
             for c in self.war_columns:
                 if c not in df.columns:
                     df[c] = 0.0
             return df
-        
-        if ev_min_col == 'icetime':
-            df['EV_min'] = df[ev_min_col] / 60
-        else:
-            df['EV_min'] = df[ev_min_col]
-        
-        if pp_min_col:
-            if pp_min_col == 'icetime':
-                df['PP_min'] = df[pp_min_col] / 60
-            else:
-                df['PP_min'] = df[pp_min_col]
-        else:
-            df['PP_min'] = 0
-        
-        if pk_min_col:
-            if pk_min_col == 'icetime':
-                df['PK_min'] = df[pk_min_col] / 60
-            else:
-                df['PK_min'] = df[pk_min_col]
-        else:
-            df['PK_min'] = 0
-        
-        xgf_ev_cols = ['xGoalsForOnIceAdjusted', 'OnIce_F_xGoals', 'xGoalsForOnIce']
-        xga_ev_cols = ['xGoalsAgainstOnIceAdjusted', 'OnIce_A_xGoals', 'xGoalsAgainstOnIce']
+
+        df['EV_min'] = df[ev_min_col] / 60 if ev_min_col == 'icetime' else df[ev_min_col]
+        df['PP_min'] = df[pp_min_col] / 60 if pp_min_col == 'icetime' else df[pp_min_col] if pp_min_col else 0
+        df['PK_min'] = df[pk_min_col] / 60 if pk_min_col == 'icetime' else df[pk_min_col] if pk_min_col else 0
+
+        df['Total_min'] = (df['EV_min'] + df['PP_min'] + df['PK_min']).clip(lower=1)
+        df['PP_weight'] = df['PP_min'] / df['Total_min']
+        df['PK_weight'] = df['PK_min'] / df['Total_min']
+
+        xgf_ev_cols = ['OnIce_F_xGoals', 'xGoalsForOnIceAdjusted', 'xGoalsForOnIce']
+        xga_ev_cols = ['OnIce_A_xGoals', 'xGoalsAgainstOnIceAdjusted', 'xGoalsAgainstOnIce']
         xgf_pp_cols = ['xGoalsForOnIcePP', 'xGoalsForPP']
         xga_pk_cols = ['xGoalsAgainstOnIcePK', 'xGoalsAgainstPK']
-        
-        xgf_ev_col = next((col for col in xgf_ev_cols if col in df.columns), None)
-        xga_ev_col = next((col for col in xga_ev_cols if col in df.columns), None)
-        xgf_pp_col = next((col for col in xgf_pp_cols if col in df.columns), None)
-        xga_pk_col = next((col for col in xga_pk_cols if col in df.columns), None)
-        
-        if xgf_ev_col:
-            df['Off_GAR'] = ((df[xgf_ev_col] - REP_XGF_EV) * df['EV_min'] / 60).fillna(0)
+
+        xgf_ev_col = next((c for c in xgf_ev_cols if c in df.columns), None)
+        xga_ev_col = next((c for c in xga_ev_cols if c in df.columns), None)
+        xgf_pp_col = next((c for c in xgf_pp_cols if c in df.columns), None)
+        xga_pk_col = next((c for c in xga_pk_cols if c in df.columns), None)
+
+        if xgf_ev_col and xga_ev_col:
+            df['xGF_EV_60'] = df[xgf_ev_col] / df['EV_min'] * 60
+            df['xGA_EV_60'] = df[xga_ev_col] / df['EV_min'] * 60
         else:
-            df['Off_GAR'] = 0
-        
-        if xga_ev_col:
-            df['Def_GAR'] = ((REP_XGA_EV - df[xga_ev_col]) * df['EV_min'] / 60).fillna(0)
-        else:
-            df['Def_GAR'] = 0
-        
-        if xgf_pp_col and pp_min_col:
-            df['PP_GAR'] = ((df[xgf_pp_col] - REP_XGF_PP) * df['PP_min'] / 60).fillna(0)
-        else:
-            df['PP_GAR'] = 0
-        
-        if xga_pk_col and pk_min_col:
-            df['PK_GAR'] = ((REP_XGA_PK - df[xga_pk_col]) * df['PK_min'] / 60).fillna(0)
-        else:
-            df['PK_GAR'] = 0
-        
-        penalty_drawn_cols = ['penaltiesDrawn', 'penaltiesDrawnEV']
-        penalty_taken_cols = ['penaltiesTaken', 'penaltiesTakenEV']
-        
-        penalty_drawn_col = next((col for col in penalty_drawn_cols if col in df.columns), None)
-        penalty_taken_col = next((col for col in penalty_taken_cols if col in df.columns), None)
-        
-        if penalty_drawn_col and penalty_taken_col:
-            df['Penalty_GAR'] = ((df[penalty_drawn_col] - df[penalty_taken_col]) * 0.2).fillna(0)
-        else:
-            df['Penalty_GAR'] = 0
-        
+            df['xGF_EV_60'] = 0.0
+            df['xGA_EV_60'] = 0.0
+
+        df['Off_GAR'] = (
+            (df['xGF_EV_60'] - REP_XGF_EV)
+            * df['EV_min'] / 60
+            * EV_OFF_WEIGHT
+        ).clip(lower=-4, upper=10).fillna(0)
+
+        df['Def_GAR'] = (
+            (REP_XGA_EV - df['xGA_EV_60'])
+            * df['EV_min'] / 60
+            * EV_DEF_WEIGHT
+        ).clip(lower=-12, upper=4).fillna(0)
+
+        df['PP_GAR'] = (
+            (df[xgf_pp_col] / df['PP_min'] * 60 - REP_XGF_PP)
+            * df['PP_min'] / 60
+            * df['PP_weight']
+            * PP_OFF_WEIGHT
+        ).clip(lower=-3, upper=6).fillna(0) if xgf_pp_col and pp_min_col else 0
+
+        df['PK_GAR'] = (
+            (REP_XGA_PK - df[xga_pk_col] / df['PK_min'] * 60)
+            * df['PK_min'] / 60
+            * df['PK_weight']
+            * PK_DEF_WEIGHT
+        ).clip(lower=-6, upper=3).fillna(0) if xga_pk_col and pk_min_col else 0
+
+        penalty_drawn_cols = ['penaltyMinutesDrawn', 'penaltiesDrawn', 'penaltiesDrawnEV']
+        penalty_taken_cols = ['penalityMinutes', 'penaltiesTaken', 'penaltiesTakenEV']
+
+        penalty_drawn_col = next((c for c in penalty_drawn_cols if c in df.columns), None)
+        penalty_taken_col = next((c for c in penalty_taken_cols if c in df.columns), None)
+
+        df['Penalty_GAR'] = (
+            (df[penalty_drawn_col] - df[penalty_taken_col]) * 0.05
+        ).fillna(0) if penalty_drawn_col and penalty_taken_col else 0
+
         faceoff_won_cols = ['faceOffsWon', 'faceoffsWon']
-        faceoff_expected_cols = ['expectedFaceOffsWon', 'expectedFaceoffsWon']
-        
-        faceoff_won_col = next((col for col in faceoff_won_cols if col in df.columns), None)
-        faceoff_expected_col = next((col for col in faceoff_expected_cols if col in df.columns), None)
-        
-        if faceoff_won_col and faceoff_expected_col:
-            df['Faceoff_GAR'] = ((df[faceoff_won_col] - df[faceoff_expected_col]) * 0.01).fillna(0)
-        else:
-            df['Faceoff_GAR'] = 0
-        
+        faceoff_lost_cols = ['faceOffsLost', 'faceoffsLost']
+
+        faceoff_won_col = next((c for c in faceoff_won_cols if c in df.columns), None)
+        faceoff_lost_col = next((c for c in faceoff_lost_cols if c in df.columns), None)
+
+        df['Faceoff_GAR'] = (
+            (df[faceoff_won_col] - (df[faceoff_won_col] + df[faceoff_lost_col]) / 2) * 0.005
+        ).fillna(0) if faceoff_won_col and faceoff_lost_col else 0
+
         df['Total_GAR'] = (
-            df['Off_GAR'] + df['Def_GAR'] + df['PP_GAR'] + 
-            df['PK_GAR'] + df['Penalty_GAR'] + df['Faceoff_GAR']
+            df['Off_GAR'] +
+            df['Def_GAR'] +
+            df['PP_GAR'] +
+            df['PK_GAR'] +
+            df['Penalty_GAR'] +
+            df['Faceoff_GAR']
         )
+
+        df['WAR_scaled'] = df['Total_GAR'] / GOALS_PER_WIN
+
+        if 'gameScore' in df.columns:
+            df['gameScore_clean'] = df['gameScore'].fillna(0).clip(-100, 100)
+        else:
+            df['gameScore_clean'] = 0.0
+
+        replacement_level_war = df['WAR_scaled'].quantile(0.3)
+        replacement_level_gs = df['gameScore_clean'].quantile(0.3)
+
+        df['WAR'] = (
+            df['WAR_scaled']
+            - replacement_level_war
+            + 0.15 * (df['gameScore_clean'] - replacement_level_gs)
+        )
+
+        debug_ids = [8475181, 8479983, 8484801, 8477492] 
+        mask = df['playerId'].isin(debug_ids) & (df['season'] == 2025) 
+        if mask.any(): 
+            debug_dict = ( df.loc[ mask, ['playerId', 'name', 'season', 'Off_GAR', 'Def_GAR', 'PP_GAR', 'PK_GAR', 'Penalty_GAR', 'Faceoff_GAR', 'Total_GAR', 'WAR_scaled', 'gameScore_clean', 'WAR'] ] .to_dict(orient='records') ) 
+            print(debug_dict) 
         
-        df['WAR'] = df['Total_GAR'] / GOALS_PER_WIN
-        
+
+        df = df.drop(
+            columns=[
+                'WAR_scaled',
+                'gameScore_clean',
+                'Total_min',
+                'PP_weight',
+                'PK_weight',
+                'xGF_EV_60',
+                'xGA_EV_60'
+            ],
+            errors='ignore'
+        )
+
         return df
-    
+        
+
     def clean_team_abbreviations(self, df):
         if 'team' not in df.columns:
             return df
@@ -215,31 +257,50 @@ class DataProcessor:
     def scale_stats_per_60_min(self, df):
         if 'icetime' not in df.columns:
             return df
-        
+
+        df = df.copy()
         df['icetime_hours'] = df['icetime'] / 3600
-        
-        exclude_cols = ["playerId", "name", "season", 'height', 'weight', 
-                       "age", "bmi", "position", "icetime", "onIce_corsiPercentage",
-                       "icetime_hours", "timeOnIcePP", "timeOnIcePK", "timeOnIceEV"]
-        
-        exclude_cols.append('team')
-        exclude_cols.extend(self.war_columns)
-        
-        stats_columns = [col for col in df.columns 
-                        if col not in exclude_cols 
-                        and pd.api.types.is_numeric_dtype(df[col])]
-        
-        if not stats_columns:
-            return df
-        
-        df_scaled = df.copy()
-        df_scaled[stats_columns] = df[stats_columns].div(df['icetime_hours'], axis=0)
-        
-        cols_to_drop = ['icetime_hours']
-        if 'icetime' in df_scaled.columns:
-            cols_to_drop.append('icetime')
-        df_scaled = df_scaled.drop(columns=cols_to_drop)
-        return df_scaled
+
+
+        never_scale_cols = set([
+            "playerId", "name", "season", "team",
+            "height", "weight", "age", "bmi", "position",
+            "icetime", "icetime_hours",
+            "onIce_corsiPercentage",
+            "timeOnIcePP", "timeOnIcePK", "timeOnIceEV"
+        ])
+        never_scale_cols.update(self.war_columns)
+
+        possible_total_cols = [
+            'games_played',
+            'I_F_goals', 'I_F_primaryAssists', 'I_F_secondaryAssists', 'I_F_points',
+            'penalityMinutes', 'pim', 'penalties', 'penaltiesDrawn', 'penaltiesTaken'
+        ]
+        total_stats_cols = []
+        for col in possible_total_cols:
+            if col in df.columns and f'{col}_total' not in df.columns:
+                df[f'{col}_total'] = df[col].copy()
+                total_stats_cols.append(f'{col}_total')
+
+        never_scale_cols.update(total_stats_cols)
+
+        if not any(c in df.columns for c in ['games_played_total', 'games_total', 'GP_total']):
+            if all(c in df.columns for c in ['timeOnIcePP', 'timeOnIcePK', 'timeOnIceEV']):
+                total_icetime_minutes = (df['timeOnIcePP'] + df['timeOnIcePK'] + df['timeOnIceEV']) / 60.0
+                df['games_played_total'] = (total_icetime_minutes / 15.0).round().astype(int).clip(lower=1)
+                never_scale_cols.add('games_played_total')
+
+
+        stats_columns = [col for col in df.select_dtypes(include="number").columns
+                        if col not in never_scale_cols]
+
+        if stats_columns:
+            df[stats_columns] = df[stats_columns].div(df['icetime_hours'], axis=0)
+
+
+        df = df.drop(columns=['icetime_hours', 'icetime'], errors='ignore')
+
+        return df
     
     def process_data(self, df, player_bio):
         merged_data = self.merge_player_data(df, player_bio)
