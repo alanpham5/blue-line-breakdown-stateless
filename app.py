@@ -78,7 +78,7 @@ def determine_archetypes(player_row, df, position):
         if total_assists >= assists_p75 and points >= points_p75 and assists_to_goals >= 1.2 and total_assists > goals:
             archetypes.append('Playmaker')
         
-        if (hits >= hits_p60 or blocked_shots >= blocked_p75) and points >= points_p60 and (height >= 72 and weight >= 200):
+        if (hits >= hits_p60) and points >= points_p60 and (height >= 72 and weight >= 200):
             archetypes.append('Power Forward')
         
         if ((blocked_shots >= blocked_p75) or (takeaways >= takeaways_p75)) and points < points_p60:
