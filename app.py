@@ -320,30 +320,17 @@ def search():
         actual_player_name = player_row['name']
         
         similarity_engine = SimilarityEngine()
-        df_normalized = similarity_engine.normalize_columns(df, method='minmax')
-        
-        war_columns = {
-            'EV_min', 'PP_min', 'PK_min', 'Off_GAR', 'Def_GAR', 
-            'PP_GAR', 'PK_GAR', 'Penalty_GAR', 'Faceoff_GAR', 
-            'Total_GAR', 'WAR'
-        }
-        feature_columns_pre = [col for col in df_normalized.columns 
-                              if col not in ["playerId", "name", "position", "season", "team"] 
-                              and col not in war_columns]
-        
-        feature_weights_dict = calculate_feature_weights(feature_columns_pre)
-        df_transformed = similarity_engine.pca_transform(df_normalized, n_components=35, feature_weights=feature_weights_dict)
         
         similar = similarity_engine.find_similar_players(
-            df_transformed, actual_player_name, season, 
+            df, actual_player_name, season, 
             num_neighbors=num_neighbors,
-            metric='cosine',
+            metric='l1',
             filter_season=filter_season,
-            normalize_first=False,
-            use_pca=False
+            normalize_first=True,
+            use_pca=True,
+            normalization_method='standard'
         )
         
-        # Define metric lists
         OFF_METRICS = [
             "SHOT_TAL",
             "PLAY_DRV",
@@ -362,15 +349,15 @@ def search():
             "GOAL_PREV",
         ]
 
-        # Compute metrics for df_season
+
         df_season = df[df['season'] == season].copy()
         time_col = 'I_F_timeOnIce' if 'I_F_timeOnIce' in df_season.columns else 'timeOnIce'
         if time_col not in df_season.columns:
             df_season[time_col] = 1  # fallback
-        df_season[time_col] = df_season[time_col].replace(0, 1)  # avoid div0
+        df_season[time_col] = df_season[time_col].replace(0, 1)  
 
         
-        # Offensive metric formulas
+ 
         df_season['SHOT_TAL'] = ((df_season.get('I_F_goals_total', 0) - df_season.get('I_F_xGoals_total', 0)) / df_season[time_col] * 60).fillna(0)
         df_season['PLAY_DRV'] = (df_season.get('I_F_primaryAssists_total', 0) / df_season[time_col] * 60).fillna(0)
         df_season['SHOT_FREQ'] = (df_season.get('I_F_shotsOnGoal', 0) / df_season.get('OnIce_F_shotAttempts', 1)).fillna(0)
@@ -378,7 +365,7 @@ def search():
         df_season['PP_USAGE'] = (df_season.get('timeOnIcePP', 0) / (df_season.get('timeOnIcePP', 0) + df_season.get('timeOnIcePK', 0) + df_season.get('timeOnIceEV', 0))).fillna(0)
         df_season['ONICE_IMP'] = (df_season.get('OnIce_F_xGoals', 0) / df_season[time_col] * 60).fillna(0)
 
-        # Defensive metric formulas
+
         df_season['POS_CTRL'] = df_season.get('onIce_corsiPercentage', 0).fillna(0)
         df_season['BLK'] = (df_season.get('shotsBlockedByPlayer', 0) / df_season[time_col] * 60).fillna(0)
         df_season['HIT'] = (df_season.get('I_F_hits', 0) / df_season[time_col] * 60).fillna(0)
@@ -386,17 +373,17 @@ def search():
         df_season['CH_SUP'] = (df_season.get('OnIce_A_xGoals', 0) / df_season[time_col] * 60).fillna(0)
         df_season['GOAL_PREV'] = (df_season.get('OnIce_A_goals', 0) / df_season[time_col] * 60).fillna(0)
 
-        # Compute player values
+
         player_time = player_row.get(time_col, 1)
         if player_time == 0:
             player_time = 1
         player_SHOT_TAL = ((player_row.get('I_F_goals_total', 0) - player_row.get('I_F_xGoals_total', 0)) / player_time * 60)
         player_PLAY_DRV = (player_row.get('I_F_primaryAssists_total', 0) / player_time * 60)
-        # Compute SHOT_FREQ as ratio: shotsOnGoal / OnIce_F_shotAttempts
+
         shot_attempts = player_row.get('OnIce_F_shotAttempts', 1)
         player_SHOT_FREQ = player_row.get('I_F_shotsOnGoal', 0) / shot_attempts
 
-        # Compute PASS_FREQ as ratio: (primaryAssists + secondaryAssists) / OnIce_F_shotAttempts
+
         player_PASS_FREQ = (player_row.get('I_F_primaryAssists_total', 0) +
                            player_row.get('I_F_secondaryAssists_total', 0)) / shot_attempts
 
@@ -410,7 +397,7 @@ def search():
         player_CH_SUP = (player_row.get('OnIce_A_xGoals', 0) / player_time * 60)
         player_GOAL_PREV = (player_row.get('OnIce_A_goals', 0) / player_time * 60)
 
-        # Compute percentiles
+
         offensive_stats = {}
         for metric in OFF_METRICS:
             player_val = locals()[f'player_{metric}']
@@ -423,7 +410,7 @@ def search():
             percentile = (df_season[metric] < player_val).sum() / len(df_season) * 100
             defensive_stats[metric] = round(percentile, 1)
 
-        # Invert percentiles for metrics where higher is worse
+
         for metric in ['CH_SUP', 'GOAL_PREV']:
             if metric in defensive_stats:
                 defensive_stats[metric] = round(100 - defensive_stats[metric], 1)
@@ -452,8 +439,7 @@ def search():
                     player_war = float(player_row['WAR'])
                     war_percentile = round((war_values < player_war).sum() / len(war_values) * 100, 1)
         
-        # Calculate stats from preserved total columns
-        # Try to get from preserved _total columns first, then fallback to regular columns
+
         games_played = safe_get(player_row, 'games_played_total', safe_get(player_row, 'games_total', 
                         safe_get(player_row, 'GP_total', safe_get(player_row, 'gamesPlayed', 
                         safe_get(player_row, 'games', safe_get(player_row, 'GP', 0))))))
@@ -462,14 +448,14 @@ def search():
         primary_assists = safe_get(player_row, 'I_F_primaryAssists_total', safe_get(player_row, 'I_F_primaryAssists', 0))
         secondary_assists = safe_get(player_row, 'I_F_secondaryAssists_total', safe_get(player_row, 'I_F_secondaryAssists', 0))
         points = safe_get(player_row, 'I_F_points_total', safe_get(player_row, 'I_F_points', 0))
-        # Try pim first (moneypuck column name), then penaltyMinutes
+
         penalty_minutes = safe_get(player_row, 'penalityMinutes_total', safe_get(player_row, 'penalityMinutes', 0))
         
 
         
         total_assists = points - goals
 
-        # If games_played is 0, estimate from icetime
+
         if games_played == 0:
             time_pp = safe_get(player_row, 'timeOnIcePP', 0)
             time_pk = safe_get(player_row, 'timeOnIcePK', 0)
@@ -523,7 +509,7 @@ def get_teams():
         
         year = int(year)
         
-        # Load data if not already cached
+
         if not cache['loaded']:
             forwards_cached, defensemen_cached = cache_manager.load_processed_data()
             if forwards_cached is not None and defensemen_cached is not None:
@@ -541,14 +527,14 @@ def get_teams():
                         'error': 'Data not available. Please ensure data files are hosted and DATA_HOST_URL is configured, or run the data processing script to generate local cache files.'
                     }), 503
         
-        # Combine forwards and defensemen data
+
         df_forwards = cache['forwards']
         df_defensemen = cache['defensemen']
         
         if df_forwards is None or df_defensemen is None:
             return jsonify({'error': 'Data not loaded'}), 500
         
-        # Filter by year
+
         df_year = pd.concat([
             df_forwards[df_forwards['season'] == year],
             df_defensemen[df_defensemen['season'] == year]
@@ -557,7 +543,7 @@ def get_teams():
         if df_year.empty:
             return jsonify({'error': f'No data available for year {year}'}), 404
         
-        # Get unique team abbreviations and sort them
+
         teams = sorted(df_year['team'].dropna().unique().tolist())
         
         return jsonify({
@@ -577,7 +563,7 @@ def get_rosters():
         team = request.args.get('team')
         position = request.args.get('position')
         
-        # Validate parameters
+
         if not year or not team or not position:
             return jsonify({
                 'error': 'year, team, and position parameters are required'
@@ -592,7 +578,7 @@ def get_rosters():
                 'error': "position must be 'F' (forwards) or 'D' (defensemen)"
             }), 400
         
-        # Load data if not already cached
+
         if not cache['loaded']:
             forwards_cached, defensemen_cached = cache_manager.load_processed_data()
             if forwards_cached is not None and defensemen_cached is not None:
@@ -610,13 +596,13 @@ def get_rosters():
                         'error': 'Data not available. Please ensure data files are hosted and DATA_HOST_URL is configured, or run the data processing script to generate local cache files.'
                     }), 503
         
-        # Select appropriate dataset based on position
+
         df = cache['forwards'] if position == 'F' else cache['defensemen']
         
         if df is None:
             return jsonify({'error': 'Data not loaded'}), 500
         
-        # Filter by year and team
+
         df_filtered = df[(df['season'] == year) & (df['team'] == team)]
         
         if df_filtered.empty:
@@ -624,28 +610,26 @@ def get_rosters():
                 'error': f'No players found for year {year}, team {team}, position {position}'
             }), 404
         
-        # Filter by team for WAR percentile calculation (all players on team for that year)
+
         df_team_year = df[(df['season'] == year) & (df['team'] == team)]
         
-        # Build player list with WAR percentiles
+
         players = []
 
         if 'WAR' in df_team_year.columns:
-            # Clean WAR values (WAR is now normalized to -100 to 100 range and includes gameScore)
+
             df = df_filtered.copy()
             df['WAR'] = df['WAR'].fillna(0)
 
             total_abs_war = df['WAR'].abs().sum()
 
-            k = 2   # aggressiveness
-            p = 1.5  # extremeness
-            
-            # Subtract threshold from WAR to shift the zero point
+            k = 2   
+            p = 1.5  
+
             war_adjusted = (df['WAR'])*2
             x = k * war_adjusted / (total_abs_war + 1e-6)
 
             if total_abs_war > 0:
-                # Calculate winShare based on normalized WAR values
                 df['winShare'] = (
                     99
                     * np.sign(x)
