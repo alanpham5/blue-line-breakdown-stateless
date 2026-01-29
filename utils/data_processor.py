@@ -194,15 +194,15 @@ class DataProcessor:
 
 
         share_gate = sheltered_mask.astype(float)
-        shelter_index = share_gate * np.minimum(rel_pp_min ** 2.0, 5.0) 
+        shelter_index = share_gate * rel_pp_min ** 5.5
 
 
 
         for col in ['Off_GAR', 'PP_GAR', 'Def_GAR']:
             pos_mask = df[col] > 0
             neg_mask = ~pos_mask
-            df.loc[sheltered_mask & pos_mask, col] *= (1 - 0.2 * shelter_index[sheltered_mask])
-            df.loc[sheltered_mask & neg_mask, col] *= (1 + 0.2 * shelter_index[sheltered_mask])
+            df.loc[sheltered_mask & pos_mask, col] *= (1 - 0.1 * shelter_index[sheltered_mask]**0.7)
+            df.loc[sheltered_mask & neg_mask, col] *= (1 + 0.1 * shelter_index[sheltered_mask]**0.7)
 
 
         penalty_drawn_cols = ['penaltyMinutesDrawn', 'penaltiesDrawn', 'penaltiesDrawnEV']
