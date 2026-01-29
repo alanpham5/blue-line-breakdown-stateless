@@ -82,6 +82,7 @@ class DataProcessor:
         return df
     
     def calculate_war(self, df):
+        # I did not create this formula. I used the internet and some AI to form it.
         GOALS_PER_WIN = 4.5
 
         REP_XGF_EV = 2.3
@@ -89,10 +90,10 @@ class DataProcessor:
         REP_XGF_PP = 3.44
         REP_XGA_PK = 5.0
 
-        EV_OFF_WEIGHT = 1
+        EV_OFF_WEIGHT = 1.25
         EV_DEF_WEIGHT = 1.35
-        PP_OFF_WEIGHT = 0.5
-        PK_DEF_WEIGHT = 0.5
+        PP_OFF_WEIGHT = 0.7
+        PK_DEF_WEIGHT = 0.6
 
         df = df.copy()
 
@@ -126,9 +127,9 @@ class DataProcessor:
                     df[c] = 0.0
             return df
 
-        df['EV_min'] = df[ev_min_col] if ev_min_col else 0
-        df['PP_min'] = df[pp_min_col] if pp_min_col else 0
-        df['PK_min'] = df[pk_min_col] if pk_min_col else 0
+        df['EV_min'] = df[ev_min_col] / 60 if ev_min_col == 'icetime' else df[ev_min_col]
+        df['PP_min'] = df[pp_min_col] / 60 if pp_min_col == 'icetime' else df[pp_min_col] if pp_min_col else 0
+        df['PK_min'] = df[pk_min_col] / 60 if pk_min_col == 'icetime' else df[pk_min_col] if pk_min_col else 0
 
         df['Total_min'] = (df['EV_min'] + df['PP_min'] + df['PK_min']).clip(lower=1)
         df['PP_weight'] = df['PP_min'] / df['Total_min']
@@ -136,9 +137,13 @@ class DataProcessor:
 
         xgf_ev_cols = ['OnIce_F_xGoals', 'xGoalsForOnIceAdjusted', 'xGoalsForOnIce']
         xga_ev_cols = ['OnIce_A_xGoals', 'xGoalsAgainstOnIceAdjusted', 'xGoalsAgainstOnIce']
+        xgf_pp_cols = ['xGoalsForOnIcePP', 'xGoalsForPP']
+        xga_pk_cols = ['xGoalsAgainstOnIcePK', 'xGoalsAgainstPK']
 
         xgf_ev_col = next((c for c in xgf_ev_cols if c in df.columns), None)
         xga_ev_col = next((c for c in xga_ev_cols if c in df.columns), None)
+        xgf_pp_col = next((c for c in xgf_pp_cols if c in df.columns), None)
+        xga_pk_col = next((c for c in xga_pk_cols if c in df.columns), None)
 
         if xgf_ev_col and xga_ev_col:
             df['xGF_EV_60'] = df[xgf_ev_col] / df['EV_min'] * 60
@@ -157,18 +162,14 @@ class DataProcessor:
             (REP_XGA_EV - df['xGA_EV_60'])
             * df['EV_min'] / 60
             * EV_DEF_WEIGHT
-        )
-        df['Def_GAR'] = df['Def_GAR'].clip(lower=-25, upper=5).fillna(0)
+        ).clip(lower=-12, upper=4).fillna(0)
 
         df['PP_GAR'] = (
-            (df['OnIce_F_xGoals'] / df['PP_min'] * 60 - REP_XGF_PP)
+            (df[xgf_pp_col] / df['PP_min'] * 60 - REP_XGF_PP)
             * df['PP_min'] / 60
             * df['PP_weight']
             * PP_OFF_WEIGHT
-        ).clip(lower=-3, upper=6).fillna(0) if 'OnIce_F_xGoals' in df.columns and pp_min_col else 0
-
-        xga_pk_cols = ['xGoalsAgainstOnIcePK', 'xGoalsAgainstPK']
-        xga_pk_col = next((c for c in xga_pk_cols if c in df.columns), None)
+        ).clip(lower=-3, upper=6).fillna(0) if xgf_pp_col and pp_min_col else 0
 
         df['PK_GAR'] = (
             (REP_XGA_PK - df[xga_pk_col] / df['PK_min'] * 60)
@@ -176,45 +177,6 @@ class DataProcessor:
             * df['PK_weight']
             * PK_DEF_WEIGHT
         ).clip(lower=-6, upper=3).fillna(0) if xga_pk_col and pk_min_col else 0
-
-        # "Shelter tax": tax d-men that mainly play on PP and sheltered minutes
-
-        pp_share = df['PP_min'] / df['icetime']
-
-        pp_share_quantile = pp_share[df['position'] == 'D'].quantile(0.95)
-        sheltered_mask = (df['position'] == 'D') & (pp_share >= pp_share_quantile)
-
-
-        share_gate = sheltered_mask.astype(float)
-
-
-        pp1_minutes_ref = df.loc[df['position'] == 'D', 'PP_min'].quantile(0.95)
-
-        rel_pp_min = (df['PP_min'] / (pp1_minutes_ref + 1e-6))
-
-        b = 3.5
-        pp_min_severity = rel_pp_min ** b
-
-
-        shelter_index = (share_gate * pp_min_severity)
-
-        off_pos = df['Off_GAR'] > 0
-        off_neg = ~off_pos
-
-        df.loc[sheltered_mask & off_pos, 'Off_GAR'] *= (1 - 0.4 * shelter_index[sheltered_mask])
-        df.loc[sheltered_mask & off_neg, 'Off_GAR'] *= (1 + 0.8 * shelter_index[sheltered_mask])
-
-        pp_pos = df['PP_GAR'] > 0
-        pp_neg = ~pp_pos
-
-        df.loc[sheltered_mask & pp_pos, 'PP_GAR'] *= (1 - 0.4 * shelter_index[sheltered_mask])
-        df.loc[sheltered_mask & pp_neg, 'PP_GAR'] *= (1 + 0.8 * shelter_index[sheltered_mask])
-
-        df.loc[sheltered_mask, 'Def_GAR'] *= (1 - 0.7 * shelter_index[sheltered_mask])
-
-
-
-
 
         penalty_drawn_cols = ['penaltyMinutesDrawn', 'penaltiesDrawn', 'penaltiesDrawnEV']
         penalty_taken_cols = ['penalityMinutes', 'penaltiesTaken', 'penaltiesTakenEV']
@@ -252,8 +214,8 @@ class DataProcessor:
         else:
             df['gameScore_clean'] = 0.0
 
-        replacement_level_war = df['WAR_scaled'].quantile(0.45)
-        replacement_level_gs = df['gameScore_clean'].quantile(0.45)
+        replacement_level_war = df['WAR_scaled'].quantile(0.3)
+        replacement_level_gs = df['gameScore_clean'].quantile(0.3)
 
         df['WAR'] = (
             df['WAR_scaled']
@@ -269,15 +231,13 @@ class DataProcessor:
                 'PP_weight',
                 'PK_weight',
                 'xGF_EV_60',
-                'xGA_EV_60',
-                'EV_share'
+                'xGA_EV_60'
             ],
             errors='ignore'
         )
 
         return df
-
-
+        
 
     def clean_team_abbreviations(self, df):
         if 'team' not in df.columns:

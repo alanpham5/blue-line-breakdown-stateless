@@ -101,7 +101,6 @@ def determine_archetypes(player_row, df, position):
         goals_against = safe_get(player_row, 'OnIce_A_goals', 0)
         penalty_minutes = safe_get(player_row, 'penaltyMinutes', 0)
         corsiPercentage = safe_get(player_row, 'onIce_corsiPercentage', 0)
-        takeaways = safe_get(player_row, 'I_F_takeaways', 0)
         
         if len(df) == 0:
             return archetypes
@@ -115,10 +114,9 @@ def determine_archetypes(player_row, df, position):
         hits_p75 = safe_quantile(df, 'I_F_hits', 0.75)
         blocked_p75 = safe_quantile(df, 'shotsBlockedByPlayer', 0.75)
         goals_against_p75 = safe_quantile(df, 'OnIce_A_goals', 0.75, float('inf'))
-        corsiPercentage_p55 = safe_quantile(df, 'onIce_corsiPercentage', 0.55)
+        corsiPercentage_p75 = safe_quantile(df, 'onIce_corsiPercentage', 0.75)
         corsiPercentage_p40 = safe_quantile(df, 'onIce_corsiPercentage', 0.40)
         penalty_minutes_p50 = safe_quantile(df, 'penaltyMinutes', 0.50)
-        takeaways_p75 = safe_quantile(df, 'I_F_takeaways', 0.75)
         
         if shot_attempts >= shot_attempts_p75 and goals >= goals_p75:
             archetypes.append('Point Shooter')
@@ -126,7 +124,7 @@ def determine_archetypes(player_row, df, position):
         if points >= points_p75 and (total_assists >= assists_p75):
             archetypes.append('Quarterback')
         
-        if points >= points_p75 and goals_against <= goals_against_p75 and corsiPercentage >= corsiPercentage_p55 and (takeaways >= takeaways_p75 or blocked_shots >= blocked_p75):
+        if points >= points_p75 and goals_against <= goals_against_p75 and corsiPercentage >= corsiPercentage_p75:
             archetypes.append('Two-Way')
         
         if hits >= hits_p75 and points < points_p75 and penalty_minutes >= penalty_minutes_p50:
