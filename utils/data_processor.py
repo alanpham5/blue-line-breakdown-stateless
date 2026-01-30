@@ -84,11 +84,9 @@ class DataProcessor:
     def calculate_war(self, df):
         GOALS_PER_WIN = 4.5
 
-
-
         EV_OFF_WEIGHT = 2.5
-        EV_DEF_WEIGHT = 2
-        PP_OFF_WEIGHT = 1
+        EV_DEF_WEIGHT = 1.5
+        PP_OFF_WEIGHT = 0.5
         PK_DEF_WEIGHT = 0.5
 
         df = df.copy()
@@ -127,7 +125,11 @@ class DataProcessor:
         df['PP_min'] = df[pp_min_col] if pp_min_col else 0
         df['PK_min'] = df[pk_min_col] if pk_min_col else 0
 
-        df['Total_min'] = (df['EV_min'] + df['PP_min'] + df['PK_min']).clip(lower=1)
+        df['EV_min'] = df['EV_min'].replace(0, np.nan)
+        df['PP_min'] = df['PP_min'].replace(0, np.nan)
+        df['PK_min'] = df['PK_min'].replace(0, np.nan)
+
+        df['Total_min'] = df['EV_min'] + df['PP_min'] + df['PK_min']
         df['PP_weight'] = df['PP_min'] / df['Total_min']
         df['PK_weight'] = df['PK_min'] / df['Total_min']
 
@@ -138,16 +140,20 @@ class DataProcessor:
         xga_ev_col = next((c for c in xga_ev_cols if c in df.columns), None)
 
         if xgf_ev_col and xga_ev_col:
-            df['xGF_EV_60'] = (df[xgf_ev_col] / df['EV_min']) * 60 
-            df['xGA_EV_60'] = (df[xga_ev_col] / df['EV_min']) * 60
+            df['xGF_EV_60'] = ((df[xgf_ev_col] / df['EV_min']) * 3600).fillna(0)
+            df['xGA_EV_60'] = ((df[xga_ev_col] / df['EV_min']) * 3600).fillna(0)
+            df['xGF_PP_60'] = ((df[xgf_ev_col] / df['PP_min']) * 60).fillna(0)
+            df['xGA_PK_60'] = ((df[xga_ev_col] / df['PK_min']) * 60).fillna(0)
         else:
             df['xGF_EV_60'] = 0.0
             df['xGA_EV_60'] = 0.0
+            df['xGF_PP_60'] = 0
+            df['xGA_PK_60'] = 0
 
         REP_XGF_EV = df['xGF_EV_60'].quantile(0.3)
         REP_XGA_EV = df['xGA_EV_60'].quantile(0.7)
-        REP_XGF_PP = ((df['OnIce_F_xGoals'] / df['PP_min']) * 60).quantile(0.5)
-        REP_XGA_PK = ((df['OnIce_A_xGoals'] / df['PK_min']) * 60).quantile(0.5)
+        REP_XGF_PP = df['xGF_PP_60'].quantile(0.5)
+        REP_XGA_PK = df['xGA_PK_60'].quantile(0.5)
 
         df['Off_GAR'] = (
             (df['xGF_EV_60'] - REP_XGF_EV)
@@ -158,48 +164,18 @@ class DataProcessor:
             (REP_XGA_EV - df['xGA_EV_60'])
             * EV_DEF_WEIGHT
         )
-        df['Def_GAR'] = df['Def_GAR']
 
         df['PP_GAR'] = (
-            ((df['OnIce_F_xGoals'] / df['PP_min']) * 60 - REP_XGF_PP)
+            (df['xGF_PP_60'] - REP_XGF_PP)
             * df['PP_weight']
             * PP_OFF_WEIGHT
         )
 
-
-
         df['PK_GAR'] = (
-            (REP_XGA_PK - (df['OnIce_A_xGoals'] / df['PK_min']) * 60)
+            (REP_XGA_PK - df['xGA_PK_60'])
             * df['PK_weight']
             * PK_DEF_WEIGHT
         )
-
-        # "Shelter tax": tax d-men that mainly play on PP and sheltered minutes
-
-        pp_share = df['PP_min'] / df['icetime']
-        pk_share = df['PK_min'] / df['icetime']
-
-
-        pp_share_quantile = pp_share[df['position'] == 'D'].quantile(0.80)
-        pk_share_quantile = pk_share[df['position'] == 'D'].quantile(0.3)
-
-
-        sheltered_mask = (df['position'] == 'D') & (pp_share >= pp_share_quantile) & (pk_share <= pk_share_quantile)
-
-        pp1_minutes_ref = df.loc[df['position'] == 'D', 'PP_min'].quantile(0.85)
-        rel_pp_min = df['PP_min'] / (pp1_minutes_ref + 1e-6)
-
-
-        share_gate = sheltered_mask.astype(float)
-        shelter_index = share_gate * (rel_pp_min) ** 7
-
-
-        for col in ['Off_GAR', 'PP_GAR', 'Def_GAR']:
-            pos_mask = df[col] > 0
-            neg_mask = ~pos_mask
-            df.loc[sheltered_mask & pos_mask, col] *= (1 - (0.1 * shelter_index[sheltered_mask]**1.2))
-            df.loc[sheltered_mask & neg_mask, col] *= (1 + (0.1 * shelter_index[sheltered_mask]**1.2))
-
 
         penalty_drawn_cols = ['penaltyMinutesDrawn', 'penaltiesDrawn', 'penaltiesDrawnEV']
         penalty_taken_cols = ['penalityMinutes', 'penaltiesTaken', 'penaltiesTakenEV']
@@ -249,13 +225,54 @@ class DataProcessor:
             + 0.15 * (df['gameScore_clean'] - replacement_level_gs)
         )
 
-
-        tau = df['icetime'].median()   # trust threshold
+        tau = df['icetime'].median()  
         confidence = (df['icetime'] / (df['icetime'] + tau))
         df['WAR'] = df['WAR'] * confidence
- 
+
+        # Apply shelter tax to defensemen
+        pp_share = df['PP_min'] / df['icetime']
+        pk_share = df['PK_min'] / df['icetime']
+
+        pp_share_quantile = pp_share[df['position'] == 'D'].quantile(0.80)
+        pk_share_quantile = pk_share[df['position'] == 'D'].quantile(0.3)
+
+        sheltered_mask = (df['position'] == 'D') & (pp_share >= pp_share_quantile) & (pk_share <= pk_share_quantile)
+
+        pp_min_sheltered = df.loc[sheltered_mask, 'PP_min']
+        if len(pp_min_sheltered) > 0:
+            pp_min_p25 = pp_min_sheltered.quantile(0.25)
+            pp_min_max = pp_min_sheltered.max()
+            
+            rel_pp_normalized = (df['PP_min'] - pp_min_p25) / (pp_min_max - pp_min_p25)
+            rel_pp_normalized = np.clip(rel_pp_normalized, 0, 1)
+            
+            def calculate_shelter_index(x):
+                return np.where(
+                    x <= 0.75,
+                    x + 0.1,  
+                    0.65 + 0.3 * (x - 0.75)  
+                )
+            
+            shelter_index = sheltered_mask.astype(float) * calculate_shelter_index(rel_pp_normalized)
+            
+            positive_war_mask = sheltered_mask & (df['WAR'] > 0)
+            df.loc[positive_war_mask, 'WAR'] *= (1 - shelter_index[positive_war_mask])
 
 
+        # Scale WAR to [-8, 8] while preserving 0
+        war_positive_max = df.loc[df['WAR'] > 0, 'WAR'].max() if (df['WAR'] > 0).any() else 1
+        war_negative_min = df.loc[df['WAR'] < 0, 'WAR'].min() if (df['WAR'] < 0).any() else -1
+
+        if war_positive_max > 8:
+            positive_mask = df['WAR'] > 0
+            df.loc[positive_mask, 'WAR'] = df.loc[positive_mask, 'WAR'] * (20 / war_positive_max)
+
+
+        if war_negative_min < -8:
+            negative_mask = df['WAR'] < 0
+            df.loc[negative_mask, 'WAR'] = df.loc[negative_mask, 'WAR'] * (4 / abs(war_negative_min))
+
+        # Cleanup temporary columns
         df = df.drop(
             columns=[
                 'WAR_scaled',
@@ -265,15 +282,17 @@ class DataProcessor:
                 'PK_weight',
                 'xGF_EV_60',
                 'xGA_EV_60',
+                'xGF_PP_60',
+                'xGA_PK_60',
+                'EV_min',
+                'PP_min',
+                'PK_min',
                 'EV_share'
             ],
             errors='ignore'
         )
 
         return df
-
-
-
     def clean_team_abbreviations(self, df):
         if 'team' not in df.columns:
             return df
