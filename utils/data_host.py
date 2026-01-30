@@ -107,6 +107,13 @@ class DataHostManager:
             return forwards, defensemen
         
         return None, None
+
+    def load_similarity_data(self):
+        forwards = self.load_from_url("forwards_similarity.csv")
+        defensemen = self.load_from_url("defensemen_similarity.csv")
+        if forwards is not None and defensemen is not None:
+            return forwards, defensemen
+        return None, None
     
     def check_data_available(self):
         try:

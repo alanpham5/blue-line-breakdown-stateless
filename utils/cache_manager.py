@@ -54,6 +54,17 @@ class CacheManager:
     def save_processed_data(self, forwards_df, defensemen_df):
         self.save_dataframe(forwards_df, "forwards_processed.csv")
         self.save_dataframe(defensemen_df, "defensemen_processed.csv")
+
+    def save_similarity_data(self, forwards_similarity_df, defensemen_similarity_df):
+        self.save_dataframe(forwards_similarity_df, "forwards_similarity.csv")
+        self.save_dataframe(defensemen_similarity_df, "defensemen_similarity.csv")
+
+    def load_similarity_data(self):
+        forwards = self.load_dataframe("forwards_similarity.csv")
+        defensemen = self.load_dataframe("defensemen_similarity.csv")
+        if forwards is not None and defensemen is not None:
+            return forwards, defensemen
+        return None, None
     
     def load_processed_data(self):
         forwards = self.load_dataframe("forwards_processed.csv")

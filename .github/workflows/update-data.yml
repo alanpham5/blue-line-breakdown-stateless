@@ -32,7 +32,7 @@ jobs:
         run: |
           python -c "
           from utils.data_loader import DataLoader
-          from utils.data_processor import DataProcessor
+          from utils.data_processor import DataProcessor, prepare_similarity_data
           from utils.cache_manager import CacheManager
           import pandas as pd
           from datetime import datetime
@@ -71,6 +71,10 @@ jobs:
               cache_manager.save_processed_data(forwards_df, defensemen_df)
           except Exception as e:
               raise
+
+          forwards_similarity = prepare_similarity_data(forwards_df, normalization_method='standard', n_components=35)
+          defensemen_similarity = prepare_similarity_data(defensemen_df, normalization_method='standard', n_components=35)
+          cache_manager.save_similarity_data(forwards_similarity, defensemen_similarity)
           "
 
       - name: Verify files exist
@@ -97,6 +101,20 @@ jobs:
             wc -l csv_cache/defensemen_processed.csv
           else
             echo "✗ defensemen_processed.csv NOT FOUND"
+            exit 1
+          fi
+          if [ -f "csv_cache/forwards_similarity.csv" ]; then
+            echo "✓ forwards_similarity.csv exists"
+            wc -l csv_cache/forwards_similarity.csv
+          else
+            echo "✗ forwards_similarity.csv NOT FOUND"
+            exit 1
+          fi
+          if [ -f "csv_cache/defensemen_similarity.csv" ]; then
+            echo "✓ defensemen_similarity.csv exists"
+            wc -l csv_cache/defensemen_similarity.csv
+          else
+            echo "✗ defensemen_similarity.csv NOT FOUND"
             exit 1
           fi
 
@@ -127,6 +145,8 @@ jobs:
           files: |
             csv_cache/forwards_processed.csv
             csv_cache/defensemen_processed.csv
+            csv_cache/forwards_similarity.csv
+            csv_cache/defensemen_similarity.csv
           tag_name: latest
           name: Data Update ${{ github.run_number }}
           body: |

@@ -143,7 +143,13 @@ def determine_archetypes(player_row, df, position):
 app = Flask(__name__)
 CORS(app)
 
-cache = {'forwards': None, 'defensemen': None, 'loaded': False}
+cache = {
+    'forwards': None,
+    'defensemen': None,
+    'forwards_similarity': None,
+    'defensemen_similarity': None,
+    'loaded': False,
+}
 loading_state = {'in_progress': False, 'error': None, 'thread': None}
 cache_manager = CacheManager()
 data_host = DataHostManager()
@@ -176,19 +182,29 @@ def initialize_data(force_reload=False):
     cache['loaded'] = False
     cache['forwards'] = None
     cache['defensemen'] = None
-    
+    cache['forwards_similarity'] = None
+    cache['defensemen_similarity'] = None
+
     forwards_cached, defensemen_cached = cache_manager.load_processed_data()
-    
+    fwd_sim_cached, def_sim_cached = cache_manager.load_similarity_data()
+
     if forwards_cached is not None and defensemen_cached is not None:
         cache['forwards'] = forwards_cached
         cache['defensemen'] = defensemen_cached
+        if fwd_sim_cached is not None and def_sim_cached is not None:
+            cache['forwards_similarity'] = fwd_sim_cached
+            cache['defensemen_similarity'] = def_sim_cached
         cache['loaded'] = True
         return
-    
+
     forwards_hosted, defensemen_hosted = data_host.load_processed_data()
+    fwd_sim_hosted, def_sim_hosted = data_host.load_similarity_data()
     if forwards_hosted is not None and defensemen_hosted is not None:
         cache['forwards'] = forwards_hosted
         cache['defensemen'] = defensemen_hosted
+        if fwd_sim_hosted is not None and def_sim_hosted is not None:
+            cache['forwards_similarity'] = fwd_sim_hosted
+            cache['defensemen_similarity'] = def_sim_hosted
         cache['loaded'] = True
 
 def load_data_in_background():
@@ -307,6 +323,11 @@ def search():
                 cache['forwards'] = forwards_cached
                 cache['defensemen'] = defensemen_cached
                 df = cache['forwards'] if position == 'F' else cache['defensemen']
+
+        similarity_df = cache['forwards_similarity'] if position == 'F' else cache['defensemen_similarity']
+        use_pre_transformed = similarity_df is not None and not similarity_df.empty
+        if not use_pre_transformed:
+            similarity_df = df
         
         player_row = find_player_in_dataframe(df, player_name, season)
         if player_row is None:
@@ -322,14 +343,13 @@ def search():
         actual_player_name = player_row['name']
         
         similarity_engine = SimilarityEngine()
-        
         similar = similarity_engine.find_similar_players(
-            df, actual_player_name, season, 
+            similarity_df, actual_player_name, season,
             num_neighbors=num_neighbors,
             metric='l1',
             filter_season=filter_season,
-            normalize_first=True,
-            use_pca=True,
+            normalize_first=not use_pre_transformed,
+            use_pca=not use_pre_transformed,
             normalization_method='standard'
         )
         

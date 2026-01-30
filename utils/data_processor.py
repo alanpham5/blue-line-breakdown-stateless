@@ -3,6 +3,84 @@ import numpy as np
 import re
 from datetime import datetime
 from sklearn.impute import KNNImputer
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+
+
+SIMILARITY_EXCLUDE_COLS = {
+    "playerId", "name", "season", "team",
+    "EV_min", "PP_min", "PK_min",
+    "timeOnIceEV", "timeOnIcePP", "timeOnIcePK",
+    "Total_GAR"
+}
+
+
+def prepare_similarity_data(df, normalization_method='standard', n_components=35, feature_weights=None):
+
+    from utils.similarity_engine import calculate_feature_weights as get_feature_weights
+
+    df_out = df.copy()
+    nonnum_columns = ["playerId", "name", "position", "season", "team"]
+
+    if "team" in df_out.columns:
+        pass
+    else:
+        nonnum_columns = [c for c in nonnum_columns if c in df_out.columns]
+
+    numeric_columns = [
+        col for col in df_out.columns
+        if col not in SIMILARITY_EXCLUDE_COLS and col not in nonnum_columns
+        and pd.api.types.is_numeric_dtype(df_out[col])
+    ]
+    if not numeric_columns:
+        raise ValueError("No numeric columns available for similarity preparation")
+
+
+    seasons = df_out["season"].unique()
+    normalized_dfs = []
+    for season in seasons:
+        season_df = df_out[df_out["season"] == season].copy()
+        scaler = StandardScaler()
+        season_df[numeric_columns] = scaler.fit_transform(season_df[numeric_columns])
+        normalized_dfs.append(season_df)
+    df_out = pd.concat(normalized_dfs, axis=0).sort_index()
+
+
+    df_nonnum = df_out[[c for c in nonnum_columns if c in df_out.columns]].copy()
+    df_numeric = df_out[numeric_columns].copy()
+    df_numeric = df_numeric.replace([np.inf, -np.inf], np.nan).fillna(0).clip(lower=-1e6, upper=1e6)
+    scaler = StandardScaler()
+    df_numeric_scaled = scaler.fit_transform(df_numeric)
+
+    if feature_weights is None:
+        feature_weights = get_feature_weights(numeric_columns)
+    weights_array = np.array([feature_weights.get(col, 1.0) for col in numeric_columns])
+    df_numeric_scaled = df_numeric_scaled * weights_array
+
+    df_numeric_values = np.nan_to_num(
+        df_numeric_scaled.astype(np.float64),
+        nan=0.0, posinf=100.0, neginf=-100.0
+    )
+    df_numeric_values = np.clip(df_numeric_values, -100, 100)
+
+    n_samples, n_features = df_numeric_values.shape
+    n_comp = min(n_components, n_features, n_samples)
+    if n_comp < 1:
+        raise ValueError("Not enough components for PCA")
+
+    try:
+        pca = PCA(n_components=n_comp)
+        trans_df = pca.fit_transform(df_numeric_values)
+    except (ValueError, np.linalg.LinAlgError):
+        df_numeric_values = np.clip(df_numeric_values, -50, 50)
+        pca = PCA(n_components=n_comp, svd_solver='arpack')
+        trans_df = pca.fit_transform(df_numeric_values)
+
+    pc_cols = list(range(n_comp))
+    trans_df = pd.DataFrame(trans_df, index=df_out.index, columns=pc_cols)
+    result = pd.concat([df_nonnum.reset_index(drop=True), trans_df.reset_index(drop=True)], axis=1)
+    return result
+
 
 class DataProcessor:
     def __init__(self):
