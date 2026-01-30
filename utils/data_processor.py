@@ -249,8 +249,8 @@ class DataProcessor:
             def calculate_shelter_index(x):
                 return np.where(
                     x <= 0.75,
-                    x + 0.1,  
-                    0.65 + 0.3 * (x - 0.75)  
+                    x + 0.25,  
+                    0.76 + 0.17 * (x - 0.7)  
                 )
             
             shelter_index = sheltered_mask.astype(float) * calculate_shelter_index(rel_pp_normalized)
