@@ -2,7 +2,7 @@ name: Update NHL Data
 
 on:
   schedule:
-    - cron: '0 2 * * *'
+    - cron: "45 12 * * *"
   workflow_dispatch:
   push:
     branches:
@@ -13,21 +13,21 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-      
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
-      
+          python-version: "3.11"
+
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
           pip install PyGithub boto3
-      
+
       - name: Process data
         run: |
           python -c "
@@ -35,15 +35,17 @@ jobs:
           from utils.data_processor import DataProcessor
           from utils.cache_manager import CacheManager
           import pandas as pd
-          
+          from datetime import datetime
+
           data_loader = DataLoader()
           data_processor = DataProcessor()
-          
-          forwards_raw, defensemen_raw = data_loader.load_all_seasons(2008, 2026)
-          
+
+          current_year = datetime.now().year
+          forwards_raw, defensemen_raw = data_loader.load_all_seasons(2008, current_year)
+
           forwards_processed = {}
           defensemen_processed = {}
-          
+
           for year in forwards_raw.keys():
               try:
                   f_data = data_processor.process_data(forwards_raw[year], data_loader.player_bio)
@@ -59,18 +61,18 @@ jobs:
                   defensemen_processed[year] = d_data
               except Exception as e:
                   pass
-          
+
           forwards_df = pd.concat(forwards_processed.values(), ignore_index=True)
           defensemen_df = pd.concat(defensemen_processed.values(), ignore_index=True)
-          
+
           cache_manager = CacheManager(cache_dir='csv_cache')
-          
+
           try:
               cache_manager.save_processed_data(forwards_df, defensemen_df)
           except Exception as e:
               raise
           "
-      
+
       - name: Verify files exist
         run: |
           echo "Checking for CSV files..."
@@ -97,14 +99,14 @@ jobs:
             echo "✗ defensemen_processed.csv NOT FOUND"
             exit 1
           fi
-      
+
       - name: Delete old latest release and tag if exists
         if: success()
         run: |
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
           git tag -d latest 2>/dev/null || true
           git push origin :refs/tags/latest 2>/dev/null || true
-          
+
           RELEASE_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" 2>/dev/null | \
@@ -117,7 +119,7 @@ jobs:
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Create Release with Data Files
         if: success()
         uses: softprops/action-gh-release@v2
