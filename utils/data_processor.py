@@ -135,15 +135,19 @@ class DataProcessor:
 
         xgf_ev_cols = ['OnIce_F_xGoals', 'xGoalsForOnIceAdjusted', 'xGoalsForOnIce']
         xga_ev_cols = ['OnIce_A_xGoals', 'xGoalsAgainstOnIceAdjusted', 'xGoalsAgainstOnIce']
+        xgf_pp_cols = ['OnIce_F_xGoals_PP', 'OnIce_F_xGoals', 'xGoalsForOnIceAdjusted', 'xGoalsForOnIce']
+        xga_pk_cols = ['OnIce_A_xGoals_PK','OnIce_A_xGoals', 'xGoalsAgainstOnIceAdjusted', 'xGoalsAgainstOnIce']
 
         xgf_ev_col = next((c for c in xgf_ev_cols if c in df.columns), None)
         xga_ev_col = next((c for c in xga_ev_cols if c in df.columns), None)
+        xgf_pp_col = next((c for c in xgf_pp_cols if c in df.columns), None)
+        xga_pk_col = next((c for c in xga_pk_cols if c in df.columns), None)
 
         if xgf_ev_col and xga_ev_col:
             df['xGF_EV_60'] = ((df[xgf_ev_col] / df['EV_min']) * 3600).fillna(0)
             df['xGA_EV_60'] = ((df[xga_ev_col] / df['EV_min']) * 3600).fillna(0)
-            df['xGF_PP_60'] = ((df[xgf_ev_col] / df['PP_min']) * 60).fillna(0)
-            df['xGA_PK_60'] = ((df[xga_ev_col] / df['PK_min']) * 60).fillna(0)
+            df['xGF_PP_60'] = ((df[xgf_pp_col] / df['PP_min']) * 60).fillna(0)
+            df['xGA_PK_60'] = ((df[xga_pk_col] / df['PK_min']) * 60).fillna(0)
         else:
             df['xGF_EV_60'] = 0.0
             df['xGA_EV_60'] = 0.0
@@ -287,7 +291,9 @@ class DataProcessor:
                 'EV_min',
                 'PP_min',
                 'PK_min',
-                'EV_share'
+                'EV_share',
+                'OnIce_F_xGoals_PP',
+                'OnIce_A_xGoals_PK'
             ],
             errors='ignore'
         )
@@ -353,10 +359,10 @@ class DataProcessor:
         merged_data = self.merge_player_data(df, player_bio)
         all_data = merged_data[merged_data['situation'] == 'all'].copy()
 
-        pp_data = merged_data[merged_data['situation'] == '5on4'][['playerId', 'season', 'icetime']].rename(columns={'icetime': 'timeOnIcePP'})
+        pp_data = merged_data[merged_data['situation'] == '5on4'][['playerId', 'season', 'icetime', 'OnIce_F_xGoals']].rename(columns={'icetime': 'timeOnIcePP', 'OnIce_F_xGoals': 'OnIce_F_xGoals_PP'})
         all_data = all_data.merge(pp_data, on=['playerId', 'season'], how='left')
 
-        pk_data = merged_data[merged_data['situation'] == '4on5'][['playerId', 'season', 'icetime']].rename(columns={'icetime': 'timeOnIcePK'})
+        pk_data = merged_data[merged_data['situation'] == '4on5'][['playerId', 'season', 'icetime', 'OnIce_A_xGoals']].rename(columns={'icetime': 'timeOnIcePK', 'OnIce_A_xGoals': 'OnIce_A_xGoals_PK'})
         all_data = all_data.merge(pk_data, on=['playerId', 'season'], how='left')
 
         ev_data = merged_data[merged_data['situation'] == '5on5'][['playerId', 'season', 'icetime']].rename(columns={'icetime': 'timeOnIceEV'})
@@ -364,9 +370,10 @@ class DataProcessor:
 
 
         all_data['timeOnIcePP'] = all_data['timeOnIcePP'].fillna(0)
+        all_data['OnIce_F_xGoals_PP'] = all_data['OnIce_F_xGoals_PP'].fillna(0)
         all_data['timeOnIcePK'] = all_data['timeOnIcePK'].fillna(0)
+        all_data['OnIce_A_xGoals_PK'] = all_data['OnIce_A_xGoals_PK'].fillna(0)
         all_data['timeOnIceEV'] = all_data['timeOnIceEV'].fillna(0)
-
 
         all_data["height"] = all_data["height"].apply(self.convert_height_to_inches)
         all_data = self.clean_team_abbreviations(all_data)
