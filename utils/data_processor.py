@@ -125,9 +125,9 @@ class DataProcessor:
         df['PP_min'] = df[pp_min_col] if pp_min_col else 0
         df['PK_min'] = df[pk_min_col] if pk_min_col else 0
 
-        df['EV_min'] = df['EV_min'].replace(0, np.nan)
-        df['PP_min'] = df['PP_min'].replace(0, np.nan)
-        df['PK_min'] = df['PK_min'].replace(0, np.nan)
+        df['EV_min'] = df['EV_min'].fillna(0)
+        df['PP_min'] = df['PP_min'].fillna(0)
+        df['PK_min'] = df['PK_min'].fillna(0)
 
         df['Total_min'] = df['EV_min'] + df['PP_min'] + df['PK_min']
         df['PP_weight'] = df['PP_min'] / df['Total_min']
@@ -158,24 +158,24 @@ class DataProcessor:
         df['Off_GAR'] = (
             (df['xGF_EV_60'] - REP_XGF_EV)
             * EV_OFF_WEIGHT
-        )
+        ).fillna(0)
 
         df['Def_GAR'] = (
             (REP_XGA_EV - df['xGA_EV_60'])
             * EV_DEF_WEIGHT
-        )
+        ).fillna(0)
 
         df['PP_GAR'] = (
             (df['xGF_PP_60'] - REP_XGF_PP)
             * df['PP_weight']
             * PP_OFF_WEIGHT
-        )
+        ).fillna(0)
 
         df['PK_GAR'] = (
             (REP_XGA_PK - df['xGA_PK_60'])
             * df['PK_weight']
             * PK_DEF_WEIGHT
-        )
+        ).fillna(0)
 
         penalty_drawn_cols = ['penaltyMinutesDrawn', 'penaltiesDrawn', 'penaltiesDrawnEV']
         penalty_taken_cols = ['penalityMinutes', 'penaltiesTaken', 'penaltiesTakenEV']
