@@ -110,18 +110,21 @@ def determine_archetypes(player_row, df, position):
         total_assists = primary_assists + secondary_assists
         
         points_p75 = safe_quantile(df, 'I_F_points', 0.75)
+        points_p45 = safe_quantile(df, 'I_F_points', 0.45)
         goals_p75 = safe_quantile(df, 'I_F_goals', 0.75)
         assists_p75 = safe_quantile(df, 'I_F_primaryAssists', 0.75)
         shot_attempts_p75 = safe_quantile(df, 'I_F_shotAttempts', 0.75)
         hits_p75 = safe_quantile(df, 'I_F_hits', 0.75)
         blocked_p75 = safe_quantile(df, 'shotsBlockedByPlayer', 0.75)
         blocked_p55 = safe_quantile(df, 'shotsBlockedByPlayer', 0.55)
-        goals_against_p75 = safe_quantile(df, 'OnIce_A_goals', 0.75, float('inf'))
+        goals_against_p40 = safe_quantile(df, 'OnIce_A_goals', 0.40)
         corsiPercentage_p55 = safe_quantile(df, 'onIce_corsiPercentage', 0.55)
         corsiPercentage_p40 = safe_quantile(df, 'onIce_corsiPercentage', 0.40)
         penalty_minutes_p50 = safe_quantile(df, 'penaltyMinutes', 0.50)
         takeaways_p75 = safe_quantile(df, 'I_F_takeaways', 0.75)
-        pk_minutes_p25 = safe_quantile(df, 'timeOnIcePK', 0.25)
+        takeaways_p95 = safe_quantile(df, 'I_F_takeaways', 0.95)
+        blocked_p95 = safe_quantile(df, 'shotsBlockedByPlayer', 0.95)
+        pk_minutes_p35 = safe_quantile(df, 'timeOnIcePK', 0.35)
         points_p35 = safe_quantile(df, 'I_F_points', 0.35)
         
         if shot_attempts >= shot_attempts_p75 and goals >= goals_p75:
@@ -130,8 +133,18 @@ def determine_archetypes(player_row, df, position):
         if points >= points_p75 and (total_assists >= assists_p75):
             archetypes.append('Quarterback')
         
-        if points >= points_p75 and goals_against <= goals_against_p75 and corsiPercentage >= corsiPercentage_p55 and pk_minutes >= pk_minutes_p25 and (takeaways >= takeaways_p75 or blocked_shots >= blocked_p75):
-            archetypes.append('Two-Way')
+        if (
+            points >= points_p45 and
+            goals_against <= goals_against_p40 and
+            corsiPercentage >= corsiPercentage_p55 and
+            (
+                takeaways >= takeaways_p95 or
+                blocked_shots >= blocked_p95 or
+                (pk_minutes >= pk_minutes_p35 and
+                (takeaways >= takeaways_p75 or blocked_shots >= blocked_p75))
+            )
+        ):
+            archetypes.append("Two-Way")
         
         if hits >= hits_p75 and points < points_p35 and penalty_minutes >= penalty_minutes_p50:
             archetypes.append('Grinder')
