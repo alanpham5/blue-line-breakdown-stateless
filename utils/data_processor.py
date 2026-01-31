@@ -162,10 +162,10 @@ class DataProcessor:
     def calculate_war(self, df):
         GOALS_PER_WIN = 4.5
 
-        EV_OFF_WEIGHT = 2.5
-        EV_DEF_WEIGHT = 1.5
-        PP_OFF_WEIGHT = 0.5
-        PK_DEF_WEIGHT = 0.5
+        EV_OFF_WEIGHT = 1.83
+        EV_DEF_WEIGHT = 1.83
+        PP_OFF_WEIGHT = 0.67
+        PK_DEF_WEIGHT = 0.67
 
         df = df.copy()
 
@@ -298,18 +298,14 @@ class DataProcessor:
         df['WAR_scaled'] = df['WAR_scaled'] * df['icetime']
         df['gameScore_clean'] = df['gameScore_clean'] * df['icetime']
 
-        replacement_level_war = df['WAR_scaled'].median()
-        replacement_level_gs = df['gameScore_clean'].median()
+        replacement_level_war = df['WAR_scaled'].quantile(0.45)
+        replacement_level_gs = df['gameScore_clean'].quantile(0.45)
 
         df['WAR'] = (
             df['WAR_scaled']
             - replacement_level_war
             + 0.15 * (df['gameScore_clean'] - replacement_level_gs)
         )
-
-        tau = df['icetime'].median()  
-        confidence = (df['icetime'] / (df['icetime'] + tau))
-        df['WAR'] = df['WAR'] * confidence
 
         # Apply shelter tax to defensemen
         pp_share = df['PP_min'] / df['icetime']
@@ -331,8 +327,8 @@ class DataProcessor:
             def calculate_shelter_index(x):
                 return np.where(
                     x <= 0.75,
-                    x + 0.25,  
-                    0.76 + 0.17 * (x - 0.7)  
+                    x + 0.15,  
+                    0.76 + 0.1 * (x - 0.7)  
                 )
             
             shelter_index = sheltered_mask.astype(float) * calculate_shelter_index(rel_pp_normalized)

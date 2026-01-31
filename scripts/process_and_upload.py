@@ -7,7 +7,7 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from utils.data_loader import DataLoader
-from utils.data_processor import DataProcessor
+from utils.data_processor import DataProcessor, prepare_similarity_data
 from utils.cache_manager import CacheManager
 import pandas as pd
 
@@ -55,7 +55,7 @@ def process_data():
     
     return forwards_df, defensemen_df
 
-def upload_to_github_release(forwards_df, defensemen_df, token, repo):
+def upload_to_github_release(forwards_df, defensemen_df, forwards_similarity_df, defensemen_similarity_df, token, repo):
     try:
         from github import Github
         import io
@@ -74,8 +74,13 @@ def upload_to_github_release(forwards_df, defensemen_df, token, repo):
                 prerelease=False
             )
         
-        for df, filename in [(forwards_df, "forwards_processed.csv"), 
-                             (defensemen_df, "defensemen_processed.csv")]:
+        upload_pairs = [
+            (forwards_df, "forwards_processed.csv"),
+            (defensemen_df, "defensemen_processed.csv"),
+            (forwards_similarity_df, "forwards_similarity.csv"),
+            (defensemen_similarity_df, "defensemen_similarity.csv"),
+        ]
+        for df, filename in upload_pairs:
             csv_buffer = io.StringIO()
             df.to_csv(csv_buffer, index=False)
             csv_content = csv_buffer.getvalue()
@@ -91,7 +96,7 @@ def upload_to_github_release(forwards_df, defensemen_df, token, repo):
     except Exception as e:
         return False
 
-def upload_to_s3(forwards_df, defensemen_df, bucket_name, aws_access_key, aws_secret_key):
+def upload_to_s3(forwards_df, defensemen_df, forwards_similarity_df, defensemen_similarity_df, bucket_name, aws_access_key, aws_secret_key):
     try:
         import boto3
         import io
@@ -102,8 +107,13 @@ def upload_to_s3(forwards_df, defensemen_df, bucket_name, aws_access_key, aws_se
             aws_secret_access_key=aws_secret_key
         )
         
-        for df, filename in [(forwards_df, "forwards_processed.csv"), 
-                             (defensemen_df, "defensemen_processed.csv")]:
+        upload_pairs = [
+            (forwards_df, "forwards_processed.csv"),
+            (defensemen_df, "defensemen_processed.csv"),
+            (forwards_similarity_df, "forwards_similarity.csv"),
+            (defensemen_similarity_df, "defensemen_similarity.csv"),
+        ]
+        for df, filename in upload_pairs:
             csv_buffer = io.StringIO()
             df.to_csv(csv_buffer, index=False)
             
@@ -120,9 +130,13 @@ def upload_to_s3(forwards_df, defensemen_df, bucket_name, aws_access_key, aws_se
 
 def main():
     forwards_df, defensemen_df = process_data()
+
+    forwards_similarity = prepare_similarity_data(forwards_df, normalization_method='standard', n_components=35)
+    defensemen_similarity = prepare_similarity_data(defensemen_df, normalization_method='standard', n_components=35)
     
     cache_manager = CacheManager()
     cache_manager.save_processed_data(forwards_df, defensemen_df)
+    cache_manager.save_similarity_data(forwards_similarity, defensemen_similarity)
     
     upload_method = os.environ.get('UPLOAD_METHOD', 'github')
     
@@ -130,14 +144,14 @@ def main():
         token = os.environ.get('GITHUB_TOKEN')
         repo = os.environ.get('GITHUB_REPO')
         if token:
-            upload_to_github_release(forwards_df, defensemen_df, token, repo)
+            upload_to_github_release(forwards_df, defensemen_df, forwards_similarity, defensemen_similarity, token, repo)
     
     elif upload_method == 's3':
         bucket = os.environ.get('S3_BUCKET')
         access_key = os.environ.get('AWS_ACCESS_KEY_ID')
         secret_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
         if bucket and access_key and secret_key:
-            upload_to_s3(forwards_df, defensemen_df, bucket, access_key, secret_key)
+            upload_to_s3(forwards_df, defensemen_df, forwards_similarity, defensemen_similarity, bucket, access_key, secret_key)
 
 if __name__ == '__main__':
     main()
