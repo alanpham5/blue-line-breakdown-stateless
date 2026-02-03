@@ -16,7 +16,9 @@ load_dotenv(env_path)
 from utils.similarity_engine import SimilarityEngine, calculate_feature_weights
 from utils.cache_manager import CacheManager
 from utils.data_host import DataHostManager
+from utils.data_loader import DataLoader
 from difflib import get_close_matches
+import unicodedata
 import pandas as pd
 
 def safe_get(player_row, col_name, default=0):
@@ -33,6 +35,15 @@ def safe_quantile(df, col_name, q, default=0):
         return default
     val = df[col_name].quantile(q)
     return val if pd.notna(val) else default
+
+def normalize_player_name(value):
+    if value is None:
+        return ""
+    text = str(value).strip().lower()
+    if not text:
+        return ""
+    normalized = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch))
 
 def determine_archetypes(player_row, df, position):
     archetypes = []
@@ -172,25 +183,62 @@ cache_manager = CacheManager()
 data_host = DataHostManager()
 
 def find_player_in_dataframe(df, player_name, season):
-    player_name_lower = player_name.lower().strip()
+    if player_name is None:
+        return None
+    player_name_lower = str(player_name).lower().strip()
+    player_name_norm = normalize_player_name(player_name)
     
     df_season = df[df['season'] == season]
     if df_season.empty:
         return None
     
-    exact_match = df_season[df_season['name'].str.lower() == player_name_lower]
+    exact_match = df_season[df_season['name'].astype(str).str.lower() == player_name_lower]
     if not exact_match.empty:
         return exact_match.iloc[0]
+    if player_name_norm:
+        norm_series = df_season['name'].astype(str).map(normalize_player_name)
+        norm_match = df_season[norm_series == player_name_norm]
+        if not norm_match.empty:
+            return norm_match.iloc[0]
     
-    all_seasons_match = df[df['name'].str.lower() == player_name_lower]
+    all_seasons_match = df[df['name'].astype(str).str.lower() == player_name_lower]
     if not all_seasons_match.empty:
         candidate_player_ids = all_seasons_match['playerId'].unique()
         for player_id in candidate_player_ids:
             player_in_season = df_season[df_season['playerId'] == player_id]
             if not player_in_season.empty:
                 return player_in_season.iloc[0]
+    if player_name_norm:
+        all_norm_series = df['name'].astype(str).map(normalize_player_name)
+        all_norm_match = df[all_norm_series == player_name_norm]
+        if not all_norm_match.empty:
+            candidate_player_ids = all_norm_match['playerId'].unique()
+            for player_id in candidate_player_ids:
+                player_in_season = df_season[df_season['playerId'] == player_id]
+                if not player_in_season.empty:
+                    return player_in_season.iloc[0]
     
     return None
+
+def ensure_player_names(df):
+    if df is None or 'name' not in df.columns:
+        return df
+    name_series = df['name']
+    if name_series.notna().mean() >= 0.8:
+        return df
+    try:
+        loader = DataLoader()
+        bios = loader.load_player_bios()
+        if bios is None or bios.empty or 'name' not in bios.columns:
+            return df
+        bios = bios[['playerId', 'name']].dropna(subset=['playerId'])
+        merged = df.merge(bios, on='playerId', how='left', suffixes=('', '_bio'))
+        if 'name_bio' in merged.columns:
+            merged['name'] = merged['name'].fillna(merged['name_bio'])
+            merged = merged.drop(columns=['name_bio'])
+        return merged
+    except Exception:
+        return df
 
 def initialize_data(force_reload=False):
     if cache['loaded'] and not force_reload:
@@ -206,8 +254,8 @@ def initialize_data(force_reload=False):
     fwd_sim_cached, def_sim_cached = cache_manager.load_similarity_data()
 
     if forwards_cached is not None and defensemen_cached is not None:
-        cache['forwards'] = forwards_cached
-        cache['defensemen'] = defensemen_cached
+        cache['forwards'] = ensure_player_names(forwards_cached)
+        cache['defensemen'] = ensure_player_names(defensemen_cached)
         if fwd_sim_cached is not None and def_sim_cached is not None:
             cache['forwards_similarity'] = fwd_sim_cached
             cache['defensemen_similarity'] = def_sim_cached
@@ -217,8 +265,8 @@ def initialize_data(force_reload=False):
     forwards_hosted, defensemen_hosted = data_host.load_processed_data()
     fwd_sim_hosted, def_sim_hosted = data_host.load_similarity_data()
     if forwards_hosted is not None and defensemen_hosted is not None:
-        cache['forwards'] = forwards_hosted
-        cache['defensemen'] = defensemen_hosted
+        cache['forwards'] = ensure_player_names(forwards_hosted)
+        cache['defensemen'] = ensure_player_names(defensemen_hosted)
         if fwd_sim_hosted is not None and def_sim_hosted is not None:
             cache['forwards_similarity'] = fwd_sim_hosted
             cache['defensemen_similarity'] = def_sim_hosted
@@ -308,22 +356,26 @@ def search():
         if not cache['loaded']:
             forwards_cached, defensemen_cached = cache_manager.load_processed_data()
             if forwards_cached is not None and defensemen_cached is not None:
-                cache['forwards'] = forwards_cached
-                cache['defensemen'] = defensemen_cached
+                cache['forwards'] = ensure_player_names(forwards_cached)
+                cache['defensemen'] = ensure_player_names(defensemen_cached)
                 cache['loaded'] = True
             else:
                 forwards_hosted, defensemen_hosted = data_host.load_processed_data()
                 if forwards_hosted is not None and defensemen_hosted is not None:
-                    cache['forwards'] = forwards_hosted
-                    cache['defensemen'] = defensemen_hosted
+                    cache['forwards'] = ensure_player_names(forwards_hosted)
+                    cache['defensemen'] = ensure_player_names(defensemen_hosted)
                     cache['loaded'] = True
                 else:
                     return jsonify({
                         'error': 'Data not available. Please ensure data files are hosted and DATA_HOST_URL is configured, or run the data processing script to generate local cache files.'
                     }), 503
         
-        data = request.json
-        player_name = data['playerName']
+        data = request.json or {}
+        player_name = data.get('playerName')
+        if player_name is None or (isinstance(player_name, str) and player_name.strip() == ""):
+            return jsonify({'error': 'playerName is required'}), 400
+        player_name = str(player_name).strip()
+        player_name_norm = normalize_player_name(player_name)
         season = int(data['season'])
         age = int(data.get('age', 0))
         position = data['position']
@@ -349,15 +401,32 @@ def search():
         player_row = find_player_in_dataframe(df, player_name, season)
         if player_row is None:
             df_season = df[df['season'] == season]
-            all_names = df_season['name'].unique() if not df_season.empty else df['name'].unique()
+            if not df_season.empty:
+                all_names = df_season['name'].dropna().astype(str).unique()
+            else:
+                all_names = df['name'].dropna().astype(str).unique()
             suggestions = get_close_matches(player_name, all_names, n=5, cutoff=0.6)
+            if player_name_norm:
+                norm_to_name = {}
+                for name in all_names:
+                    key = normalize_player_name(name)
+                    if key and key not in norm_to_name:
+                        norm_to_name[key] = name
+                suggestions_norm = get_close_matches(
+                    player_name_norm,
+                    list(norm_to_name.keys()),
+                    n=5,
+                    cutoff=0.6
+                )
+                if suggestions_norm:
+                    suggestions = [norm_to_name[k] for k in suggestions_norm]
             
             return jsonify({
                 'error': f'Player {player_name} not found in {season}',
                 'suggestions': suggestions
             }), 404
         
-        actual_player_name = player_row['name']
+        actual_player_name = str(player_row['name'])
         
         similarity_engine = SimilarityEngine()
         similar = similarity_engine.find_similar_players(

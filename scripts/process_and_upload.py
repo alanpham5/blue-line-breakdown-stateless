@@ -82,7 +82,7 @@ def upload_to_github_release(forwards_df, defensemen_df, forwards_similarity_df,
         ]
         for df, filename in upload_pairs:
             csv_buffer = io.StringIO()
-            df.to_csv(csv_buffer, index=False)
+            df.to_csv(csv_buffer, encoding='utf-8', index=False)
             csv_content = csv_buffer.getvalue()
             
             release.upload_asset(
@@ -115,7 +115,7 @@ def upload_to_s3(forwards_df, defensemen_df, forwards_similarity_df, defensemen_
         ]
         for df, filename in upload_pairs:
             csv_buffer = io.StringIO()
-            df.to_csv(csv_buffer, index=False)
+            df.to_csv(csv_buffer, encoding='utf-8',index=False)
             
             s3.put_object(
                 Bucket=bucket_name,

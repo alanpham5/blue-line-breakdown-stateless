@@ -39,13 +39,13 @@ class CacheManager:
     
     def save_dataframe(self, df, filename):
         cache_path = self.get_cache_path(filename)
-        df.to_csv(cache_path, index=False)
+        df.to_csv(cache_path, encoding='utf-8', index=False)
         return cache_path
     
     def load_dataframe(self, filename):
         cache_path = self._find_cache_file(filename)
         if cache_path and cache_path.exists():
-            return pd.read_csv(cache_path)
+            return pd.read_csv(cache_path, encoding='utf-8')
         return None
     
     def cache_exists(self, filename):

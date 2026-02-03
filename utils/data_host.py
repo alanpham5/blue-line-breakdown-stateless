@@ -1,7 +1,7 @@
 import pandas as pd
 import requests
 import os
-from io import StringIO
+from io import BytesIO
 
 class DataHostManager:
     def __init__(self):
@@ -67,6 +67,12 @@ class DataHostManager:
         except Exception as e:
             pass
         return None
+
+    def _read_csv_response(self, response):
+        try:
+            return pd.read_csv(BytesIO(response.content), encoding="utf-8")
+        except UnicodeDecodeError:
+            return pd.read_csv(BytesIO(response.content), encoding="utf-8-sig")
     
     def load_from_url(self, filename):
         headers = {
@@ -88,7 +94,7 @@ class DataHostManager:
             if response.status_code == 404:
                 return None
             response.raise_for_status()
-            df = pd.read_csv(StringIO(response.text))
+            df = self._read_csv_response(response)
             if df.empty:
                 return None
             return df

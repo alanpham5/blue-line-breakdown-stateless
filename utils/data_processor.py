@@ -149,10 +149,22 @@ class DataProcessor:
     
     def merge_player_data(self, df_stats, df_info):
         df_info['birthDate'] = pd.to_datetime(df_info['birthDate'])
-        merged_df = pd.merge(df_stats, df_info, on='playerId', how='inner')
+        
+        df_stats_copy = df_stats.copy()
+        if 'name' in df_stats_copy.columns and 'name' in df_info.columns:
+            df_stats_copy = df_stats_copy.drop(columns=['name'])
+        
+        merged_df = pd.merge(df_stats_copy, df_info, on='playerId', how='inner')
         merged_df['age'] = merged_df.apply(self.calculate_age, axis=1)
-        columns = ['playerId', 'height', 'weight', 'age'] + \
-                  [col for col in df_stats.columns if col not in ['playerId']]
+        
+        merged_df.loc[merged_df['playerId'] == 8482116, 'name'] = 'Tim Stützle'
+        merged_df.loc[merged_df['playerId'] == 8481535, 'name'] = 'Nils Höglander'
+        merged_df.loc[merged_df['playerId'] == 8475825, 'name'] = 'Jani Hakanpää'
+        merged_df.loc[merged_df['playerId'] == 8482109, 'name'] = 'Alexis Lafrenière'
+        merged_df.loc[merged_df['playerId'] == 8480796, 'name'] = 'Martin Fehérváry'
+
+        columns = ['playerId', 'name', 'height', 'weight', 'age'] + \
+                  [col for col in df_stats_copy.columns if col not in ['playerId']]
         return merged_df[columns]
     
     def add_bmi(self, df):
