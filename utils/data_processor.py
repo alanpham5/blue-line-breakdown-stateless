@@ -157,11 +157,45 @@ class DataProcessor:
         merged_df = pd.merge(df_stats_copy, df_info, on='playerId', how='inner')
         merged_df['age'] = merged_df.apply(self.calculate_age, axis=1)
         
-        merged_df.loc[merged_df['playerId'] == 8482116, 'name'] = 'Tim Stützle'
-        merged_df.loc[merged_df['playerId'] == 8481535, 'name'] = 'Nils Höglander'
-        merged_df.loc[merged_df['playerId'] == 8475825, 'name'] = 'Jani Hakanpää'
-        merged_df.loc[merged_df['playerId'] == 8482109, 'name'] = 'Alexis Lafrenière'
-        merged_df.loc[merged_df['playerId'] == 8480796, 'name'] = 'Martin Fehérváry'
+        accent_name_overrides = {
+            8482116: 'Tim Stützle',
+            8481535: 'Nils Höglander',
+            8475825: 'Jani Hakanpää',
+            8482109: 'Alexis Lafrenière',
+            8480796: 'Martin Fehérváry',
+            8476882: 'Teuvo Teräväinen',
+            8475714: 'Calle Järnkrok',
+            8477416: 'Oliver Björkstrand',
+            8471262: 'Carl Söderberg',
+            8475175: 'Magnus Pääjärvi',
+            8481813: 'Gaëtan Haas',
+            8477944: 'Jakub Vrána',
+            8477956: 'David Pastrňák',
+            8476292: 'Ondřej Palát',
+            8480039: 'Martin Nečas',
+            8474161: 'Jakub Voráček',
+            8476881: 'Tomáš Hertl',
+            8475193: 'Tomáš Tatar',
+            8469521: 'Tomáš Plekanec',
+            8475765: 'Vladimír Tarasenko',
+            8465009: 'Zdeno Chára',
+            8466148: 'Marián Hossa',
+            8459534: 'Miroslav Šatan',
+            8483495: 'Šimon Nemec',
+            8478416: 'Erik Černák',
+            8478870: 'Rūdolfs Balcers',
+            8479022: 'Rodrigo Ābols',
+            8479729: 'Kristiāns Rubīns',
+            8478007: 'Elvis Merzļikins',
+            8481668: 'Artūrs Šilovs',
+            8473484: 'Kaspars Daugaviņš',
+            8477930: 'Pierre-Édouard Bellemare',
+            8467400: 'François Beauchemin',
+            8477520: 'Jean-Sébastien Dea',
+            8477444: 'André Burakovsky',
+        }
+        for player_id, name in accent_name_overrides.items():
+            merged_df.loc[merged_df['playerId'] == player_id, 'name'] = name
 
         columns = ['playerId', 'name', 'height', 'weight', 'age'] + \
                   [col for col in df_stats_copy.columns if col not in ['playerId']]
