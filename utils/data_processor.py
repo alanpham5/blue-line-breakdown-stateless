@@ -175,6 +175,7 @@ class DataProcessor:
             8480039: 'Martin Nečas',
             8474161: 'Jakub Voráček',
             8476881: 'Tomáš Hertl',
+            8476874: 'Olli Määttä',
             8475193: 'Tomáš Tatar',
             8469521: 'Tomáš Plekanec',
             8475765: 'Vladimír Tarasenko',
