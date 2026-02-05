@@ -300,6 +300,16 @@ def load_data_in_background():
 def health():
     return jsonify({'status': 'healthy', 'message': 'API is running'})
 
+@app.route('/refresh_cache', methods=['POST'])
+def refresh_cache():
+    try:
+        thread = threading.Thread(target=load_data_in_background, daemon=True)
+        thread.start()
+        return jsonify({'status': 'loading', 'message': 'Cache refresh started'}), 202
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route('/init', methods=['GET'])
 def init():
     if cache['loaded']:
