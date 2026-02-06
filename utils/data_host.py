@@ -1,113 +1,56 @@
-import pandas as pd
-import requests
 import os
 from io import BytesIO
 
+import pandas as pd
+from google.cloud import storage
+
 class DataHostManager:
     def __init__(self):
-        self.github_repo = os.environ.get('GITHUB_REPO')
-        self.repo_base = f"https://github.com/{self.github_repo}/releases/download" if self.github_repo else ""
-        self._latest_tag = None
-        self._latest_release_data = None
-    
-    def get_latest_release_tag(self):
-        if not self.github_repo:
-            return None
-        if self._latest_tag:
-            return self._latest_tag
-        
-        try:
-            api_url = f"https://api.github.com/repos/{self.github_repo}/releases/latest"
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-                'Accept': 'application/vnd.github.v3+json'
-            }
-            
-            github_token = os.environ.get('GITHUB_TOKEN')
-            if github_token:
-                headers['Authorization'] = f'token {github_token}'
-            
-            response = requests.get(api_url, headers=headers, timeout=10)
-            
-            if response.status_code == 200:
-                release_data = response.json()
-                tag = release_data.get('tag_name')
-                assets = release_data.get('assets', [])
-                if tag:
-                    self._latest_tag = tag
-                    self._latest_release_data = release_data
-                    return tag
-        except Exception as e:
-            pass
-        return None
-    
-    def get_base_url(self):
-        if self.github_repo and self.repo_base:
-            return f"{self.repo_base}/latest"
-        fallback = os.environ.get('DATA_HOST_URL', "")
-        return fallback
-    
-    def get_release_by_tag(self, tag):
-        if not self.github_repo:
-            return None
-        try:
-            api_url = f"https://api.github.com/repos/{self.github_repo}/releases/tags/{tag}"
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-                'Accept': 'application/vnd.github.v3+json'
-            }
-            
-            github_token = os.environ.get('GITHUB_TOKEN')
-            if github_token:
-                headers['Authorization'] = f'token {github_token}'
-            
-            response = requests.get(api_url, headers=headers, timeout=10)
-            if response.status_code == 200:
-                return response.json()
-        except Exception as e:
-            pass
-        return None
+        self.gcs_bucket = os.environ.get('GCS_BUCKET')
+        self.gcs_prefix = os.environ.get('GCS_PREFIX', '')
+        self.gcp_project = os.environ.get('GCP_PROJECT')
 
-    def _read_csv_response(self, response):
-        try:
-            return pd.read_csv(BytesIO(response.content), encoding="utf-8")
-        except UnicodeDecodeError:
-            return pd.read_csv(BytesIO(response.content), encoding="utf-8-sig")
-    
-    def load_from_url(self, filename):
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-            'Accept': 'text/csv,application/octet-stream,*/*'
-        }
-        
-        if not self.github_repo or not self.repo_base:
+    def _client(self):
+        if not self.gcs_bucket:
             return None
-        
-        base_url = self.get_base_url()
-        if not base_url:
+        if self.gcp_project:
+            return storage.Client(project=self.gcp_project)
+        return storage.Client()
+
+    def _blob_name(self, filename):
+        prefix = (self.gcs_prefix or "").strip("/")
+        if prefix:
+            return f"{prefix}/{filename}"
+        return filename
+
+    def _read_parquet_bytes(self, content):
+        return pd.read_parquet(BytesIO(content))
+
+    def _download_blob_bytes(self, filename):
+        client = self._client()
+        if client is None:
             return None
-        
-        file_url = f"{base_url}/{filename}"
-        
+        bucket = client.bucket(self.gcs_bucket)
+        blob = bucket.blob(self._blob_name(filename))
+        if not blob.exists():
+            return None
+        return blob.download_as_bytes()
+
+    def load_parquet(self, filename):
         try:
-            response = requests.get(file_url, headers=headers, timeout=30, allow_redirects=True)
-            if response.status_code == 404:
+            content = self._download_blob_bytes(filename)
+            if content is None:
                 return None
-            response.raise_for_status()
-            df = self._read_csv_response(response)
-            if df.empty:
+            df = self._read_parquet_bytes(content)
+            if df is None or df.empty:
                 return None
             return df
-        except requests.exceptions.HTTPError as e:
-            return None
-        except requests.exceptions.RequestException:
-            return None
         except Exception:
             return None
     
     def load_processed_data(self):
-        forwards = self.load_from_url("forwards_processed.csv")
-        defensemen = self.load_from_url("defensemen_processed.csv")
+        forwards = self.load_parquet("forwards_processed.parquet")
+        defensemen = self.load_parquet("defensemen_processed.parquet")
         
         if forwards is not None and defensemen is not None:
             return forwards, defensemen
@@ -115,16 +58,19 @@ class DataHostManager:
         return None, None
 
     def load_similarity_data(self):
-        forwards = self.load_from_url("forwards_similarity.csv")
-        defensemen = self.load_from_url("defensemen_similarity.csv")
+        forwards = self.load_parquet("forwards_similarity.parquet")
+        defensemen = self.load_parquet("defensemen_similarity.parquet")
         if forwards is not None and defensemen is not None:
             return forwards, defensemen
         return None, None
     
     def check_data_available(self):
         try:
-            base_url = self.get_base_url()
-            response = requests.head(f"{base_url}/forwards_processed.csv", timeout=5)
-            return response.status_code == 200
-        except:
+            client = self._client()
+            if client is None:
+                return False
+            bucket = client.bucket(self.gcs_bucket)
+            blob = bucket.blob(self._blob_name("forwards_processed.parquet"))
+            return blob.exists()
+        except Exception:
             return False

@@ -1,14 +1,17 @@
 import sys
 import os
+from dotenv import load_dotenv
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
+env_path = os.path.join(parent_dir, '.env')
+load_dotenv(env_path)
+
 from utils.data_loader import DataLoader
 from utils.data_processor import DataProcessor, prepare_similarity_data
-from utils.cache_manager import CacheManager
 import pandas as pd
 
 def process_data():
@@ -55,77 +58,34 @@ def process_data():
     
     return forwards_df, defensemen_df
 
-def upload_to_github_release(forwards_df, defensemen_df, forwards_similarity_df, defensemen_similarity_df, token, repo):
+def upload_to_gcs(forwards_df, defensemen_df, forwards_similarity_df, defensemen_similarity_df, bucket_name, prefix="", project=None):
     try:
-        from github import Github
+        from google.cloud import storage
         import io
-        
-        g = Github(token)
-        repo_obj = g.get_repo(repo)
-        
-        try:
-            release = repo_obj.get_latest_release()
-        except:
-            release = repo_obj.create_git_release(
-                tag=f"data-{pd.Timestamp.now().strftime('%Y%m%d')}",
-                name=f"Data Update {pd.Timestamp.now().strftime('%Y-%m-%d')}",
-                message="Daily automated data update",
-                draft=False,
-                prerelease=False
-            )
-        
-        upload_pairs = [
-            (forwards_df, "forwards_processed.csv"),
-            (defensemen_df, "defensemen_processed.csv"),
-            (forwards_similarity_df, "forwards_similarity.csv"),
-            (defensemen_similarity_df, "defensemen_similarity.csv"),
-        ]
-        for df, filename in upload_pairs:
-            csv_buffer = io.StringIO()
-            df.to_csv(csv_buffer, encoding='utf-8', index=False)
-            csv_content = csv_buffer.getvalue()
-            
-            release.upload_asset(
-                content_type="text/csv",
-                name=filename,
-                fileobj=io.BytesIO(csv_content.encode()),
-                label=filename
-            )
-        
-        return True
-    except Exception as e:
-        return False
 
-def upload_to_s3(forwards_df, defensemen_df, forwards_similarity_df, defensemen_similarity_df, bucket_name, aws_access_key, aws_secret_key):
-    try:
-        import boto3
-        import io
-        
-        s3 = boto3.client(
-            's3',
-            aws_access_key_id=aws_access_key,
-            aws_secret_access_key=aws_secret_key
-        )
-        
+        client = storage.Client(project=project) if project else storage.Client()
+        bucket = client.bucket(bucket_name)
+
+        clean_prefix = prefix.strip("/")
+
+        def blob_name(filename):
+            return f"{clean_prefix}/{filename}" if clean_prefix else filename
+
         upload_pairs = [
-            (forwards_df, "forwards_processed.csv"),
-            (defensemen_df, "defensemen_processed.csv"),
-            (forwards_similarity_df, "forwards_similarity.csv"),
-            (defensemen_similarity_df, "defensemen_similarity.csv"),
+            (forwards_df, "forwards_processed.parquet"),
+            (defensemen_df, "defensemen_processed.parquet"),
+            (forwards_similarity_df, "forwards_similarity.parquet"),
+            (defensemen_similarity_df, "defensemen_similarity.parquet"),
         ]
         for df, filename in upload_pairs:
-            csv_buffer = io.StringIO()
-            df.to_csv(csv_buffer, encoding='utf-8',index=False)
-            
-            s3.put_object(
-                Bucket=bucket_name,
-                Key=filename,
-                Body=csv_buffer.getvalue().encode(),
-                ContentType='text/csv'
-            )
-        
+            parquet_buffer = io.BytesIO()
+            df.to_parquet(parquet_buffer, index=False)
+            blob = bucket.blob(blob_name(filename))
+            blob.upload_from_string(parquet_buffer.getvalue(), content_type="application/octet-stream")
+
         return True
     except Exception as e:
+        print(f"GCS upload error: {e}", flush=True)
         return False
 
 def main():
@@ -134,24 +94,15 @@ def main():
     forwards_similarity = prepare_similarity_data(forwards_df, normalization_method='standard', n_components=35)
     defensemen_similarity = prepare_similarity_data(defensemen_df, normalization_method='standard', n_components=35)
     
-    cache_manager = CacheManager()
-    cache_manager.save_processed_data(forwards_df, defensemen_df)
-    cache_manager.save_similarity_data(forwards_similarity, defensemen_similarity)
-    
-    upload_method = os.environ.get('UPLOAD_METHOD', 'github')
-    
-    if upload_method == 'github':
-        token = os.environ.get('GITHUB_TOKEN')
-        repo = os.environ.get('GITHUB_REPO')
-        if token:
-            upload_to_github_release(forwards_df, defensemen_df, forwards_similarity, defensemen_similarity, token, repo)
-    
-    elif upload_method == 's3':
-        bucket = os.environ.get('S3_BUCKET')
-        access_key = os.environ.get('AWS_ACCESS_KEY_ID')
-        secret_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
-        if bucket and access_key and secret_key:
-            upload_to_s3(forwards_df, defensemen_df, forwards_similarity, defensemen_similarity, bucket, access_key, secret_key)
+    bucket = os.environ.get('GCS_BUCKET')
+    prefix = (os.environ.get('GCS_PREFIX', '') or '').strip()
+    project = os.environ.get('GCP_PROJECT')
+    if not bucket:
+        raise ValueError("GCS_BUCKET is required.")
+    ok = upload_to_gcs(forwards_df, defensemen_df, forwards_similarity, defensemen_similarity, bucket, prefix, project)
+    if not ok:
+        raise RuntimeError("GCS upload failed. Check credentials and bucket permissions.")
+    print(f"Uploaded processed data to gs://{bucket}/{prefix}".rstrip("/"), flush=True)
 
 if __name__ == '__main__':
     main()

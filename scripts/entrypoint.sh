@@ -3,18 +3,8 @@ set -e
 
 echo "Starting backend..."
 
-python app.py &
+PORT="${PORT:-8080}"
+WORKERS="${GUNICORN_WORKERS:-1}"
+TIMEOUT="${GUNICORN_TIMEOUT:-600}"
 
-
-if [ "$DEV_MODE" = "true" ]; then
-  echo "DEV_MODE enabled: starting file watcher"
-  python scripts/watch_and_process.py &
-else
-  echo "DEV_MODE disabled: watcher not running"
-fi
-
-while true; do
-  echo "Sleeping 5 hours before clearing cache..."
-  sleep 18000
-  sh scripts/clear_cache.sh
-done
+exec gunicorn --bind "0.0.0.0:${PORT}" --timeout "${TIMEOUT}" --workers "${WORKERS}" app:app

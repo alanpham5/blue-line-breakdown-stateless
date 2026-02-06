@@ -14,7 +14,6 @@ env_path = os.path.join(current_dir, '.env')
 load_dotenv(env_path)
 
 from utils.similarity_engine import SimilarityEngine, calculate_feature_weights
-from utils.cache_manager import CacheManager
 from utils.data_host import DataHostManager
 from utils.data_loader import DataLoader
 from difflib import get_close_matches
@@ -179,7 +178,6 @@ cache = {
     'loaded': False,
 }
 loading_state = {'in_progress': False, 'error': None, 'thread': None}
-cache_manager = CacheManager()
 data_host = DataHostManager()
 
 def find_player_in_dataframe(df, player_name, season):
@@ -249,19 +247,6 @@ def initialize_data(force_reload=False):
     cache['defensemen'] = None
     cache['forwards_similarity'] = None
     cache['defensemen_similarity'] = None
-
-    forwards_cached, defensemen_cached = cache_manager.load_processed_data()
-    fwd_sim_cached, def_sim_cached = cache_manager.load_similarity_data()
-
-    if forwards_cached is not None and defensemen_cached is not None:
-        cache['forwards'] = ensure_player_names(forwards_cached)
-        cache['defensemen'] = ensure_player_names(defensemen_cached)
-        if fwd_sim_cached is not None and def_sim_cached is not None:
-            cache['forwards_similarity'] = fwd_sim_cached
-            cache['defensemen_similarity'] = def_sim_cached
-        cache['loaded'] = True
-        return
-
     forwards_hosted, defensemen_hosted = data_host.load_processed_data()
     fwd_sim_hosted, def_sim_hosted = data_host.load_similarity_data()
     if forwards_hosted is not None and defensemen_hosted is not None:
@@ -279,16 +264,7 @@ def load_data_in_background():
     try:
         initialize_data(force_reload=True)
         if not cache['loaded']:
-            cache_exists = cache_manager.cache_exists("forwards_processed.csv") and cache_manager.cache_exists("defensemen_processed.csv")
-            github_repo = os.environ.get('GITHUB_REPO', 'Not set')
-            
-            if github_repo and github_repo != 'Not set':
-                base_url = data_host.get_base_url()
-                forwards_url = f"{base_url}/forwards_processed.csv" if base_url else "N/A"
-                error_msg = f'Failed to load data. No local cache found. GitHub URL returned 404: {forwards_url}. Please create a release tagged "latest" with forwards_processed.csv and defensemen_processed.csv files, or run the data processing script locally to create cache files.'
-            else:
-                error_msg = 'Failed to load data. No local cache found and GITHUB_REPO not configured. Please set GITHUB_REPO or run the data processing script to create local cache files.'
-            
+            error_msg = 'Failed to load data. Please ensure processed parquet files exist in GCS and GCS_BUCKET/GCS_PREFIX are configured.'
             loading_state['error'] = error_msg
     except Exception as e:
         import traceback
@@ -333,7 +309,7 @@ def init():
         }), 202
     
     if loading_state['error']:
-        cache_exists = cache_manager.cache_exists("forwards_processed.csv") and cache_manager.cache_exists("defensemen_processed.csv")
+        cache_exists = data_host.check_data_available()
         return jsonify({
             'status': 'error',
             'message': loading_state['error'],
@@ -354,8 +330,7 @@ def init():
 @app.route('/search', methods=['GET', 'POST'])
 def search():
     if request.method == 'GET':
-        cache_exists = cache_manager.cache_exists("forwards_processed.csv") and \
-                     cache_manager.cache_exists("defensemen_processed.csv")
+        cache_exists = data_host.check_data_available()
         
         return jsonify({
             'cacheExists': cache_exists,
@@ -364,21 +339,15 @@ def search():
     
     try:
         if not cache['loaded']:
-            forwards_cached, defensemen_cached = cache_manager.load_processed_data()
-            if forwards_cached is not None and defensemen_cached is not None:
-                cache['forwards'] = ensure_player_names(forwards_cached)
-                cache['defensemen'] = ensure_player_names(defensemen_cached)
+            forwards_hosted, defensemen_hosted = data_host.load_processed_data()
+            if forwards_hosted is not None and defensemen_hosted is not None:
+                cache['forwards'] = ensure_player_names(forwards_hosted)
+                cache['defensemen'] = ensure_player_names(defensemen_hosted)
                 cache['loaded'] = True
             else:
-                forwards_hosted, defensemen_hosted = data_host.load_processed_data()
-                if forwards_hosted is not None and defensemen_hosted is not None:
-                    cache['forwards'] = ensure_player_names(forwards_hosted)
-                    cache['defensemen'] = ensure_player_names(defensemen_hosted)
-                    cache['loaded'] = True
-                else:
-                    return jsonify({
-                        'error': 'Data not available. Please ensure data files are hosted and DATA_HOST_URL is configured, or run the data processing script to generate local cache files.'
-                    }), 503
+                return jsonify({
+                    'error': 'Data not available. Please ensure processed parquet files are present in GCS and GCS_BUCKET/GCS_PREFIX are configured.'
+                }), 503
         
         data = request.json or {}
         player_name = data.get('playerName')
@@ -397,10 +366,10 @@ def search():
         
         df = cache['forwards'] if position == 'F' else cache['defensemen']
         if df is not None and hasattr(df, 'columns') and 'WAR' not in df.columns:
-            forwards_cached, defensemen_cached = cache_manager.load_processed_data()
-            if forwards_cached is not None and defensemen_cached is not None:
-                cache['forwards'] = forwards_cached
-                cache['defensemen'] = defensemen_cached
+            forwards_hosted, defensemen_hosted = data_host.load_processed_data()
+            if forwards_hosted is not None and defensemen_hosted is not None:
+                cache['forwards'] = forwards_hosted
+                cache['defensemen'] = defensemen_hosted
                 df = cache['forwards'] if position == 'F' else cache['defensemen']
 
         similarity_df = cache['forwards_similarity'] if position == 'F' else cache['defensemen_similarity']
@@ -627,23 +596,16 @@ def get_teams():
         
         year = int(year)
         
-
         if not cache['loaded']:
-            forwards_cached, defensemen_cached = cache_manager.load_processed_data()
-            if forwards_cached is not None and defensemen_cached is not None:
-                cache['forwards'] = forwards_cached
-                cache['defensemen'] = defensemen_cached
+            forwards_hosted, defensemen_hosted = data_host.load_processed_data()
+            if forwards_hosted is not None and defensemen_hosted is not None:
+                cache['forwards'] = forwards_hosted
+                cache['defensemen'] = defensemen_hosted
                 cache['loaded'] = True
             else:
-                forwards_hosted, defensemen_hosted = data_host.load_processed_data()
-                if forwards_hosted is not None and defensemen_hosted is not None:
-                    cache['forwards'] = forwards_hosted
-                    cache['defensemen'] = defensemen_hosted
-                    cache['loaded'] = True
-                else:
-                    return jsonify({
-                        'error': 'Data not available. Please ensure data files are hosted and DATA_HOST_URL is configured, or run the data processing script to generate local cache files.'
-                    }), 503
+                return jsonify({
+                    'error': 'Data not available. Please ensure processed parquet files are present in GCS and GCS_BUCKET/GCS_PREFIX are configured.'
+                }), 503
         
 
         df_forwards = cache['forwards']
@@ -696,23 +658,16 @@ def get_rosters():
                 'error': "position must be 'F' (forwards) or 'D' (defensemen)"
             }), 400
         
-
         if not cache['loaded']:
-            forwards_cached, defensemen_cached = cache_manager.load_processed_data()
-            if forwards_cached is not None and defensemen_cached is not None:
-                cache['forwards'] = forwards_cached
-                cache['defensemen'] = defensemen_cached
+            forwards_hosted, defensemen_hosted = data_host.load_processed_data()
+            if forwards_hosted is not None and defensemen_hosted is not None:
+                cache['forwards'] = forwards_hosted
+                cache['defensemen'] = defensemen_hosted
                 cache['loaded'] = True
             else:
-                forwards_hosted, defensemen_hosted = data_host.load_processed_data()
-                if forwards_hosted is not None and defensemen_hosted is not None:
-                    cache['forwards'] = forwards_hosted
-                    cache['defensemen'] = defensemen_hosted
-                    cache['loaded'] = True
-                else:
-                    return jsonify({
-                        'error': 'Data not available. Please ensure data files are hosted and DATA_HOST_URL is configured, or run the data processing script to generate local cache files.'
-                    }), 503
+                return jsonify({
+                    'error': 'Data not available. Please ensure processed parquet files are present in GCS and GCS_BUCKET/GCS_PREFIX are configured.'
+                }), 503
         
 
         df = cache['forwards'] if position == 'F' else cache['defensemen']
