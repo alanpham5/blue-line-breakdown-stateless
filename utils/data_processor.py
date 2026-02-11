@@ -194,6 +194,8 @@ class DataProcessor:
             8467400: 'François Beauchemin',
             8477520: 'Jean-Sébastien Dea',
             8477444: 'André Burakovsky',
+            8483515: 'Juraj Slafkovský'
+
         }
         for player_id, name in accent_name_overrides.items():
             merged_df.loc[merged_df['playerId'] == player_id, 'name'] = name
