@@ -359,11 +359,15 @@ class DataProcessor:
         # Apply shelter tax to defensemen
         pp_share = df['PP_min'] / df['icetime']
         pk_share = df['PK_min'] / df['icetime']
+        ev_time = df['EV_min']
+        pts = df['I_F_points'] if 'I_F_points' in df.columns else 0
 
         pp_share_quantile = pp_share[df['position'] == 'D'].quantile(0.80)
         pk_share_quantile = pk_share[df['position'] == 'D'].quantile(0.3)
+        ev_share_quantile = ev_time[df['position'] == 'D'].quantile(0.87)
+        pts_quantile = pts[df['position'] == 'D'].quantile(0.95)
 
-        sheltered_mask = (df['position'] == 'D') & (pp_share >= pp_share_quantile) & (pk_share <= pk_share_quantile)
+        sheltered_mask = (df['position'] == 'D') & (pp_share >= pp_share_quantile) & (pk_share <= pk_share_quantile) & ((ev_time <= ev_share_quantile) | (pts <= pts_quantile))
 
         pp_min_sheltered = df.loc[sheltered_mask, 'PP_min']
         if len(pp_min_sheltered) > 0:
