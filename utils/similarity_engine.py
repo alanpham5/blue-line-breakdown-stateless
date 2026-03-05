@@ -22,19 +22,19 @@ def calculate_feature_weights(feature_columns):
 
         if 'i_f_' in c:
             if 'goals' in c or 'xgoals' in c:
-                w = 2.2
+                w = 2.1
             elif 'primaryassists' in c:
-                w = 2
+                w = 1.9
             elif 'secondaryassists' in c:
                 w = 1.5
             elif 'shots' in c or 'shotattempts' in c:
-                w = 1.5
+                w = 1.4
             elif 'points' in c:
-                w = 1.8
+                w = 1.9
 
         elif 'onice_f_' in c:
             if 'xgoals' in c:
-                w = 1.4
+                w = 1.5
             elif 'shots' in c:
                 w = 1.3
             else:
@@ -44,19 +44,19 @@ def calculate_feature_weights(feature_columns):
             w = 0.8
 
         elif 'corsi' in c:
-            w = 0.7
+            w = 0.8
 
         elif any(x in c for x in ['hits', 'I_F_hits', 'penalityMinutes','penaltyMinutes' , 'penaltiesTakenEV']):
-            w = 2.4
+            w = 2.5
 
         elif any(x in c for x in ['takeaways', 'blocked']):
             w = 2
 
         elif c in ['war', 'off_gar', 'def_gar', 'pp_gar', 'pk_gar', 'gamescore']:
-            w = 0.9
+            w = 1.1
 
         elif c in ['height', 'weight']:
-            w = 0.8
+            w = 1.1
         
         elif c == 'age':
             w = 1.3
@@ -170,33 +170,22 @@ class SimilarityEngine:
         if not player_mask.any():
             raise ValueError(f"Player {player_name} not found in season {season}")
 
-        player_row_raw = df_processed[player_mask].iloc[0]
-
-        if all(c in df_processed.columns for c in ['EV_min', 'PP_min', 'PK_min']):
-            df_processed = df_processed.copy()
-            df_processed['_total_min'] = (
-                df_processed['EV_min'] +
-                df_processed['PP_min'] +
-                df_processed['PK_min']
+        toi_cols = ['timeOnIceEV', 'timeOnIcePP', 'timeOnIcePK']
+        season_toi_thresholds = {}
+        player_season_toi = {}
+        if all(c in df_processed.columns for c in toi_cols):
+            toi_df = df_processed[['playerId', 'season'] + toi_cols].copy()
+            toi_df['_total_toi'] = toi_df[toi_cols].sum(axis=1)
+            season_toi_thresholds = (
+                toi_df.groupby('season')['_total_toi']
+                .quantile(0.43)
+                .to_dict()
             )
-
-            threshold = df_processed['_total_min'].quantile(0.5)
-
-            filtered_df = df_processed[df_processed['_total_min'] >= threshold]
-
-            player_total_min = (
-                player_row_raw['EV_min'] +
-                player_row_raw['PP_min'] +
-                player_row_raw['PK_min']
+            player_season_toi = (
+                toi_df.groupby(['playerId', 'season'])['_total_toi']
+                .max()
+                .to_dict()
             )
-
-            if player_total_min < threshold:
-                filtered_df = pd.concat(
-                    [filtered_df, df_processed[player_mask]],
-                    axis=0
-                )
-
-            df_processed = filtered_df.drop(columns=['_total_min'])
 
         if normalize_first:
             df_processed = self.normalize_columns(df_processed, method=normalization_method)
@@ -261,5 +250,11 @@ class SimilarityEngine:
                 all_neighbors = [n for n in all_neighbors if n['season'] == single_season]
 
         neighbors = [n for n in all_neighbors if n['playerId'] != player_id]
+        if season_toi_thresholds and player_season_toi:
+            neighbors = [
+                n for n in neighbors
+                if player_season_toi.get((n['playerId'], n['season']), -np.inf)
+                >= season_toi_thresholds.get(n['season'], -np.inf)
+            ]
         neighbors.sort(key=lambda x: x['similarity'], reverse=True)
         return neighbors[:num_neighbors]
