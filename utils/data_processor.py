@@ -344,8 +344,6 @@ class DataProcessor:
         else:
             df['gameScore_clean'] = 0.0
 
-        df['WAR_scaled'] = df['WAR_scaled'] * df['icetime']
-        df['gameScore_clean'] = df['gameScore_clean'] * df['icetime']
 
         replacement_level_war = df['WAR_scaled'].quantile(0.45)
         replacement_level_gs = df['gameScore_clean'].quantile(0.45)
@@ -354,7 +352,7 @@ class DataProcessor:
             df['WAR_scaled']
             - replacement_level_war
             + 0.15 * (df['gameScore_clean'] - replacement_level_gs)
-        )
+        )* df['icetime']
 
         # Apply shelter tax to defensemen
         pp_share = df['PP_min'] / df['icetime']

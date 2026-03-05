@@ -46,7 +46,7 @@ def calculate_feature_weights(feature_columns):
         elif 'corsi' in c:
             w = 0.7
 
-        elif c in ['hits', 'penaltiesTotal']:
+        elif any(x in c for x in ['hits', 'I_F_hits', 'penalityMinutes','penaltyMinutes' , 'penaltiesTakenEV']):
             w = 2.4
 
         elif any(x in c for x in ['takeaways', 'blocked']):
@@ -180,7 +180,7 @@ class SimilarityEngine:
                 df_processed['PK_min']
             )
 
-            threshold = df_processed['_total_min'].quantile(0.3)
+            threshold = df_processed['_total_min'].quantile(0.5)
 
             filtered_df = df_processed[df_processed['_total_min'] >= threshold]
 
