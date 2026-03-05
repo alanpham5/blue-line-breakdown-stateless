@@ -172,25 +172,35 @@ class SimilarityEngine:
 
         player_row_raw = df_processed[player_mask].iloc[0]
 
-        if all(c in df_processed.columns for c in ['EV_min', 'PP_min', 'PK_min']):
+        minute_cols = ['timeOnIceEV', 'timeOnIcePP', 'timeOnIcePK']
+
+
+        if minute_cols is not None:
+            print(f"Applying dynamic minimum minutes filtering based on columns: {minute_cols}")
             df_processed = df_processed.copy()
             df_processed['_total_min'] = (
-                df_processed['EV_min'] +
-                df_processed['PP_min'] +
-                df_processed['PK_min']
+                df_processed[minute_cols[0]] +
+                df_processed[minute_cols[1]] +
+                df_processed[minute_cols[2]]
             )
 
-            threshold = df_processed['_total_min'].quantile(0.5)
+            season_thresholds = df_processed.groupby('season')['_total_min'].transform(
+                lambda x: x.quantile(0.45)
+            )
 
-            filtered_df = df_processed[df_processed['_total_min'] >= threshold]
+            filtered_df = df_processed[df_processed['_total_min'] >= season_thresholds]
 
             player_total_min = (
-                player_row_raw['EV_min'] +
-                player_row_raw['PP_min'] +
-                player_row_raw['PK_min']
+                player_row_raw[minute_cols[0]] +
+                player_row_raw[minute_cols[1]] +
+                player_row_raw[minute_cols[2]]
             )
 
-            if player_total_min < threshold:
+            # Get the threshold for the input player's season
+            player_threshold = season_thresholds[player_mask].iloc[0]
+
+            # Ensure the input player is always present, even if they don't meet the threshold
+            if player_total_min < player_threshold:
                 filtered_df = pd.concat(
                     [filtered_df, df_processed[player_mask]],
                     axis=0
