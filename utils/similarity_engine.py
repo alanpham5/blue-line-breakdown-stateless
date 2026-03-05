@@ -176,7 +176,6 @@ class SimilarityEngine:
 
 
         if minute_cols is not None:
-            print(f"Applying dynamic minimum minutes filtering based on columns: {minute_cols}")
             df_processed = df_processed.copy()
             df_processed['_total_min'] = (
                 df_processed[minute_cols[0]] +
@@ -185,7 +184,7 @@ class SimilarityEngine:
             )
 
             season_thresholds = df_processed.groupby('season')['_total_min'].transform(
-                lambda x: x.quantile(0.45)
+                lambda x: x.quantile(0.4)
             )
 
             filtered_df = df_processed[df_processed['_total_min'] >= season_thresholds]
